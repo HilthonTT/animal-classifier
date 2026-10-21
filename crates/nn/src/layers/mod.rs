@@ -1,3 +1,5 @@
+mod pool;
+
 use crate::{
     error::{Error, Result},
     rng::Rng,
@@ -72,4 +74,14 @@ pub trait Layer: Send + Sync {
         grad_input: &mut [f32],
         grad_params: &mut [f32],
     );
+}
+
+pub(crate) fn parse_config<const N: usize>(config: &[u32], layer: &str) -> Result<[usize; N]> {
+    if config.len() != N {
+        return Err(Error::format(format!(
+            "{layer} layer expects {N} configuration values, found {}",
+            config.len()
+        )));
+    }
+    Ok(std::array::from_fn(|i| config[i] as usize))
 }
