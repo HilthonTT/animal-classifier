@@ -101,7 +101,12 @@ impl Network {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::write(path, self.to_bytes())?;
+        let mut temp = path.as_os_str().to_owned();
+        temp.push(".tmp");
+        fs::write(&temp, self.to_bytes())?;
+        fs::rename(&temp, path).inspect_err(|_| {
+            let _ = fs::remove_file(&temp);
+        })?;
         Ok(())
     }
 
@@ -171,6 +176,18 @@ mod tests {
         assert_eq!(restored.to_bytes(), net.to_bytes());
         let input: Vec<f32> = (0..16).map(|i| i as f32 / 16.0).collect();
         assert_eq!(restored.forward(&input), net.forward(&input));
+    }
+
+    #[test]
+    fn save_replaces_the_file_without_leaving_a_temporary() {
+        let dir = std::env::temp_dir().join(format!("nn-save-{}", std::process::id()));
+        let path = dir.join("model.bin");
+        let net = tiny_net();
+        net.save(&path).unwrap();
+        net.save(&path).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), net.to_bytes());
+        assert!(!dir.join("model.bin.tmp").exists());
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
