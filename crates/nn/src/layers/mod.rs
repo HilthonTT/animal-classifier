@@ -1,4 +1,10 @@
+mod dense;
+mod dropout;
 mod pool;
+
+pub use dense::Dense;
+pub use dropout::Dropout;
+pub use pool::MaxPool2d;
 
 use crate::{
     error::{Error, Result},
