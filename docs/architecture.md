@@ -38,10 +38,11 @@ and `DatasetExpansion` combined.
 | `crates/nn/src/network.rs` | the sequential `Network`, back-propagation, L2 regularisation |
 | `crates/nn/src/format.rs` | the [model file format](model-format.md) |
 | `crates/classifier/src/data/` | CIFAR-10 reader/writer, normalisation, augmentation, dataset expansion |
-| `crates/classifier/src/image/` | PPM and BMP codecs, resize/crop/pad/flip/contrast, the photo `Preprocessor` |
+| `crates/classifier/src/image/` | PNG (with DEFLATE), PPM and BMP decoders, a PPM encoder, resize/crop/pad/flip/contrast, the photo `Preprocessor` |
 | `crates/classifier/src/model.rs` | the default CNN and its options |
 | `crates/classifier/src/train.rs` | `TrainConfig` builder, multi-threaded training and evaluation |
 | `crates/classifier/src/ensemble.rs` | averaging several models |
+| `crates/classifier/src/saliency.rs` | heat maps of the pixels behind a prediction (SmoothGrad) |
 | `crates/cli/src/commands/` | one file per sub-command |
 
 ## The network
@@ -66,7 +67,7 @@ The activation, initialisation, dropout rate and width are all configurable (see
 
 ## How a prediction is made
 
-1. **Load:** PPM or BMP is decoded into an `RgbImage`.
+1. **Load:** PNG, PPM or BMP is decoded into an `RgbImage`.
 2. **Fit:** the image is made square by cropping, padding or stretching, then shrunk to
    32×32 with a box filter. Auto-contrast is optional.
 3. **Normalise:** pixels are scaled to `[0, 1]`, then centred with the CIFAR-10 per-channel

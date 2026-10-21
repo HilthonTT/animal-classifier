@@ -7,6 +7,15 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **PNG support:** a from-scratch PNG decoder with its own DEFLATE decompressor. Every colour
+  type and bit depth, interlaced images, and CRC and Adler-32 checks; transparency becomes white.
+- **Heat maps:** `predict --explain OUT` saves the pixels behind each prediction (SmoothGrad on
+  gradient × input), also for ensembles and `--tta`. `Network::input_gradient` exposes the
+  underlying gradient.
+- **Validation split:** `train --val FRACTION` (default 0.1) holds out training images and
+  keeps the epoch with the best validation accuracy, so test accuracy stays honest. `--val 0`
+  restores the old behaviour.
+- **Training logs:** `train --log FILE` writes per-epoch loss and accuracy as CSV.
 - Project logo (`assets/logo.svg`).
 - `docs/usage.md` and a documentation index (`docs/README.md`).
 
@@ -16,8 +25,11 @@ All notable changes to this project are documented here. The format follows
   `models/ensemble/pawnet-seed<n>.bin`, and model files start with `PAWNET`; files written
   before the rename still load.
 - The README is now a short overview; the details moved to `docs/`.
+- `Predictor` has a new required method, `logit_gradient`, used by the heat maps.
 
 ### Fixed
+- Saving a model writes a temporary file and renames it, so an interrupted save can no longer
+  corrupt the previous model.
 - Model files with oversized layer shapes, or with no layers, are rejected with an error instead of crashing.
 - PPM: samples above `maxval` are rejected instead of wrapping around, and a huge header no longer allocates gigabytes.
 - BMP: 32-bit `BI_BITFIELDS` colour masks are honoured.

@@ -6,11 +6,11 @@ You need [Rust](https://rustup.rs) 1.85 or newer. Pre-trained models are committ
 ## Classify an image
 
 ```bash
-cargo run --release -- predict dog.ppm --tta
+cargo run --release -- predict dog.png --tta
 ```
 
 ```
-dog.ppm (128x128)
+dog.png (128x128)
   dog      ████████████████████░░░░░░░░░░  67.1%
   cat      ███████░░░░░░░░░░░░░░░░░░░░░░░  22.4%
   bird     █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   3.7%
@@ -26,15 +26,37 @@ dog.ppm (128x128)
 | `--tta` | test-time augmentation: also classify the mirror image (about 2× slower, usually +1–2 points) |
 | `--fit crop\|pad\|stretch` | how a non-square photo is made square before shrinking it to 32×32 |
 | `--auto-contrast` | stretch the colour range of dull photos |
+| `--explain OUT` | save a heat map of the pixels behind the answer (see below) |
+
+### See what the model looks at
+
+```bash
+cargo run --release -- predict dog.png --explain dog-heatmap.ppm
+cargo run --release -- predict photos/*.png --explain heatmaps/    # one map per image
+```
+
+`--explain` writes a 256×256 heat map of the predicted class: the 32×32 image the network
+actually sees, with the pixels that pushed it towards its answer glowing orange to yellow.
+
+![Test images (top) and their heat maps (bottom)](../assets/heatmaps.png)
+
+The maps use SmoothGrad on gradient × input: the class score is back-propagated to the input
+pixels for 32 slightly noisy copies of the image and the results are averaged. With `--tta`
+the mirrored copy contributes too, and an ensemble averages its members. Expect about 0.1 s
+per image for one model. Very bright or saturated backgrounds can light up as well, because
+the maps measure change relative to the dataset's average colour.
 
 ### Using your own photos
 
-Decoding JPEG and PNG would need large external libraries, so the classifier only reads
-**PPM** and **24/32-bit BMP** files. Convert a photo with any image tool:
+The classifier reads **PNG**, **PPM** and **24/32-bit BMP** files. The PNG decoder, including
+its DEFLATE decompressor, is written from scratch like the rest of the project. It supports
+every colour type and bit depth and interlaced images; transparent areas become white.
+
+JPEG would need a far larger decoder, so convert JPEG photos first:
 
 ```bash
-magick my-dog.jpg my-dog.ppm        # ImageMagick
-ffmpeg -i my-dog.jpg my-dog.ppm     # FFmpeg
+magick my-dog.jpg my-dog.png        # ImageMagick
+ffmpeg -i my-dog.jpg my-dog.png     # FFmpeg
 ```
 
 The network sees photos at only 32×32 pixels. You get the best results when the animal
@@ -61,7 +83,7 @@ Every training option, recipes and reference results are in the [training guide]
 |---------|-------------|
 | `train` | Train a model; the best epoch (by test accuracy) is saved |
 | `evaluate` | Accuracy, per-class precision and recall, and a confusion matrix |
-| `predict <IMAGE>…` | Classify `.ppm` / `.bmp` files |
+| `predict <IMAGE>…` | Classify `.png`, `.ppm` or `.bmp` files |
 | `expand` | Write a 4× larger training set (flipped, shifted and rotated copies) |
 | `export-samples` | Write test-set images as `.ppm` files |
 | `info` | Print the network architecture |
@@ -78,7 +100,7 @@ use pawnet::image::{Preprocessor, RgbImage};
 use pawnet::nn::Network;
 
 let net = Network::load("models/pawnet.bin")?;
-let image = RgbImage::load("dog.ppm")?;
+let image = RgbImage::load("dog.png")?;
 let probabilities = Preprocessor::default().predict(&net, &image);
 ```
 
@@ -99,7 +121,7 @@ Complete, runnable examples:
 
 ```bash
 cargo run -p pawnet-nn --example xor
-cargo run --release -p pawnet --example classify -- models/pawnet.bin dog.ppm
+cargo run --release -p pawnet --example classify -- models/pawnet.bin dog.png
 ```
 
 API documentation: `cargo doc --workspace --no-deps --open`.

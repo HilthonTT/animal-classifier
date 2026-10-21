@@ -23,11 +23,12 @@ To reproduce them, see [docs/training.md](../docs/training.md):
 
 ```bash
 cargo run --release -- expand --seed 7
-cargo run --release -- train --data data/cifar-10-expanded --epochs 15 --seed 4 --threads 6 --model models/pawnet.bin
+cargo run --release -- train --data data/cifar-10-expanded --epochs 15 --seed 4 --threads 6 --val 0 --model models/pawnet.bin
 for seed in 1 2 3; do
-  cargo run --release -- train --seed $seed --threads 2 --model models/ensemble/pawnet-seed$seed.bin
+  cargo run --release -- train --seed $seed --threads 2 --val 0 --model models/ensemble/pawnet-seed$seed.bin
 done
 ```
 
 The same seed and the same `--threads` value reproduce the same model on the same
-platform.
+platform. `--val 0` reproduces how these models were trained: the best epoch was chosen by
+test accuracy, which makes their figures slightly optimistic.

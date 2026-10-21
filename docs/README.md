@@ -24,7 +24,9 @@ and [CONTRIBUTING.md](../CONTRIBUTING.md).
 - Multi-threaded, reproducible training with `std::thread::scope`
 - On-the-fly augmentation, and offline dataset expansion (4× the images, including rotations)
 - Ensembles and test-time augmentation
-- PPM and BMP decoders with crop/pad/stretch fitting and auto-contrast
+- Heat maps of the pixels behind each prediction
+- Best-epoch selection on a validation split, and CSV training logs
+- PNG (with its own DEFLATE decompressor), PPM and BMP decoders with crop/pad/stretch fitting and auto-contrast
 - A builder API: `TrainConfig::new().epochs(30).l2(1e-4).gradient_clipping(5.0)`
 
 **The CLI** ([`crates/cli`](../crates/cli), binary `pawnet`): `train`, `evaluate`,

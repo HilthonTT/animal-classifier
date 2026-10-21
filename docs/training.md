@@ -9,9 +9,13 @@ cargo run --release -- train
 ```
 
 This trains for 20 epochs: Adam, learning rate 0.001 decaying by 10% per epoch, batch size 64,
-cross-entropy loss, ReLU, He initialisation, 25% dropout, and random flips and shifts. After
-every epoch the model is evaluated on the 6 000 test images. The best epoch is saved to
-`models/pawnet.bin`.
+cross-entropy loss, ReLU, He initialisation, 25% dropout, and random flips and shifts.
+
+10% of the training images are held out as a **validation set**. After every epoch the model
+is evaluated on the validation set and on the 6 000 test images. The epoch with the best
+*validation* accuracy is saved to `models/pawnet.bin`, so the test accuracy stays an honest
+estimate. Saving writes a temporary file and renames it, so an interrupted run never leaves a
+corrupt model behind.
 
 ## Every option
 
@@ -33,6 +37,8 @@ every epoch the model is evaluated on the 6 000 test images. The best epoch is s
 | `--limit N` | train on only the first N images | all |
 | `--seed N` | make a run reproducible | random |
 | `--resume` | continue training the model at `--model` | off |
+| `--val FRACTION` | share of the training images held out to choose the best epoch; `0` chooses by test accuracy | 0.1 |
+| `--log FILE` | write one CSV row per epoch (see below) | off |
 | `--threads N` | CPU threads | all cores |
 
 The same options are available from Rust through the builder:
@@ -49,6 +55,20 @@ let config = TrainConfig::new()
     .loss(Loss::CrossEntropy);
 ```
 
+## Training logs
+
+`--log runs/baseline.csv` writes one row per epoch, flushed as training goes:
+
+```csv
+epoch,loss,train_accuracy,val_accuracy,test_accuracy,learning_rate,seconds,saved
+1,1.971198,0.234815,0.313333,0.316667,1.0000e-3,4.344,true
+2,1.632769,0.336667,0.436667,0.389667,9.0000e-4,5.810,true
+```
+
+Accuracies are fractions between 0 and 1. `val_accuracy` is empty with `--val 0`, and `saved`
+says whether that epoch became the new best model. Open the file in any spreadsheet to plot
+and compare runs.
+
 ## Recipes
 
 ### More data: offline expansion
@@ -62,6 +82,9 @@ cargo run --release -- train --data data/cifar-10-expanded --epochs 15
 them as CIFAR-10 files and copies the test set alongside. Each epoch takes about four times as
 long, but the network sees much more variety. Use `--shift`, `--rotate` and `--no-flip` to
 change the mix.
+
+On expanded data the validation split can contain copies of training images, so validation
+accuracy reads high. It still ranks the epochs, but trust the test accuracy for the final number.
 
 ### An ensemble
 
@@ -119,5 +142,6 @@ Lessons from these runs:
 Training time: about 27 s per epoch on the standard set and about 2 minutes per epoch on the
 expanded set (8 threads).
 
-> Note: `train` keeps the epoch with the best test accuracy, so these figures are slightly
-> optimistic. A strict setup would choose the epoch on a separate validation split.
+> Note: these models were trained before `--val` existed and kept the epoch with the best
+> *test* accuracy, so their figures are slightly optimistic. New runs choose the epoch on the
+> validation split instead.
