@@ -1,7 +1,11 @@
+use std::fs::{self, File};
+use std::io::{BufWriter, Write};
+use std::path::{Path, PathBuf};
+
 use pawnet::data::cifar::{self, Split};
 use pawnet::model::{self, ModelOptions};
 use pawnet::nn::{Adam, Network, Optimizer, Rng, Sgd};
-use pawnet::train::{self, TrainConfig};
+use pawnet::train::{self, EpochStats, TrainConfig};
 
 use super::{AppResult, DEFAULT_DATA_DIR, DEFAULT_MODEL_PATH, time_seed};
 use crate::args::Options;
@@ -27,6 +31,8 @@ pub fn run(opts: &Options) -> AppResult {
         "limit",
         "no-augment",
         "resume",
+        "val",
+        "log",
     ])?;
     let data_dir = opts.path("data", DEFAULT_DATA_DIR);
     let model_path = opts.path("model", DEFAULT_MODEL_PATH);
@@ -59,6 +65,10 @@ pub fn run(opts: &Options) -> AppResult {
     {
         return Err("--clip must be a positive number".into());
     }
+    let val_fraction: f32 = opts.get("val", 0.1)?;
+    if !(0.0..1.0).contains(&val_fraction) {
+        return Err("--val must be in [0, 1)".into());
+    }
     let seed = opts.get("seed", time_seed())?;
 
     println!("Loading CIFAR-10 animals from {}", data_dir.display());
@@ -67,14 +77,39 @@ pub fn run(opts: &Options) -> AppResult {
     if let Some(limit) = opts.get_opt::<usize>("limit")? {
         train_set.truncate(limit);
     }
+    let mut rng = Rng::new(seed);
+    let val_set = if val_fraction > 0.0 {
+        let (train, val) = train_set.split_validation(val_fraction, &mut rng);
+        if val.is_empty() {
+            return Err("--val is too small: the validation set is empty".into());
+        }
+        train_set = train;
+        Some(val)
+    } else {
+        None
+    };
     println!(
-        "  {} training images, {} test images",
+        "  {} training images, {} validation images, {} test images",
         train_set.len(),
+        val_set.as_ref().map_or(0, |v| v.len()),
         test_set.len()
     );
-    println!("  classes: {}\n", train_set.class_names.join(", "));
+    println!("  classes: {}", train_set.class_names.join(", "));
+    match &val_set {
+        Some(_) => println!("  the best epoch is chosen by validation accuracy\n"),
+        None => println!("  --val 0: the best epoch is chosen by test accuracy (optimistic)\n"),
+    }
+    let selection_set = val_set.as_ref().unwrap_or(&test_set);
+    let selection_name = if val_set.is_some() {
+        "validation"
+    } else {
+        "test"
+    };
+    let mut log = match opts.get_opt::<PathBuf>("log")? {
+        Some(path) => Some(TrainingLog::create(&path)?),
+        None => None,
+    };
 
-    let mut rng = Rng::new(seed);
     let mut net = if opts.flag("resume") {
         println!("Resuming from {}", model_path.display());
         Network::load(&model_path)?
@@ -106,8 +141,11 @@ pub fn run(opts: &Options) -> AppResult {
     );
 
     let mut best = if opts.flag("resume") {
-        let accuracy = train::evaluate(&net, &test_set, config.threads, false).accuracy();
-        println!("Resumed model test accuracy {:.1}%\n", accuracy * 100.0);
+        let accuracy = train::evaluate(&net, selection_set, config.threads, false).accuracy();
+        println!(
+            "Resumed model {selection_name} accuracy {:.1}%\n",
+            accuracy * 100.0
+        );
         accuracy
     } else {
         f32::NEG_INFINITY
@@ -121,16 +159,21 @@ pub fn run(opts: &Options) -> AppResult {
         &mut rng,
         |net, stats| {
             let test_accuracy = train::evaluate(net, &test_set, config.threads, false).accuracy();
-            let saved = if test_accuracy > best {
-                best = test_accuracy;
+            let val_accuracy = val_set
+                .as_ref()
+                .map(|val| train::evaluate(net, val, config.threads, false).accuracy());
+            let score = val_accuracy.unwrap_or(test_accuracy);
+            let saved = if score > best {
+                best = score;
                 improved = true;
                 net.save(&model_path)?;
                 "  [saved]"
             } else {
                 ""
             };
+            let val = val_accuracy.map_or(String::new(), |v| format!("  val {:5.1}%", v * 100.0));
             println!(
-                "epoch {:>2}/{}  loss {:.4}  train {:5.1}%  test {:5.1}%  lr {:.1e}  {:>5.1}s{saved}",
+                "epoch {:>2}/{}  loss {:.4}  train {:5.1}%{val}  test {:5.1}%  lr {:.1e}  {:>5.1}s{saved}",
                 stats.epoch,
                 config.epochs,
                 stats.loss,
@@ -139,13 +182,16 @@ pub fn run(opts: &Options) -> AppResult {
                 stats.learning_rate,
                 stats.duration.as_secs_f32()
             );
+            if let Some(log) = log.as_mut() {
+                log.record(stats, val_accuracy, test_accuracy, !saved.is_empty())?;
+            }
             Ok(())
         },
     )?;
 
     if improved {
         println!(
-            "\nBest test accuracy {:.1}% — model saved to {}",
+            "\nBest {selection_name} accuracy {:.1}% — model saved to {}",
             best * 100.0,
             model_path.display()
         );
@@ -156,4 +202,45 @@ pub fn run(opts: &Options) -> AppResult {
         );
     }
     Ok(())
+}
+
+struct TrainingLog {
+    out: BufWriter<File>,
+}
+
+impl TrainingLog {
+    fn create(path: &Path) -> std::io::Result<Self> {
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            fs::create_dir_all(parent)?;
+        }
+        let mut out = BufWriter::new(File::create(path)?);
+        writeln!(
+            out,
+            "epoch,loss,train_accuracy,val_accuracy,test_accuracy,learning_rate,seconds,saved"
+        )?;
+        out.flush()?;
+        Ok(Self { out })
+    }
+
+    fn record(
+        &mut self,
+        stats: &EpochStats,
+        val_accuracy: Option<f32>,
+        test_accuracy: f32,
+        saved: bool,
+    ) -> std::io::Result<()> {
+        writeln!(
+            self.out,
+            "{},{:.6},{:.6},{},{:.6},{:.4e},{:.3},{}",
+            stats.epoch,
+            stats.loss,
+            stats.accuracy,
+            val_accuracy.map_or(String::new(), |v| format!("{v:.6}")),
+            test_accuracy,
+            stats.learning_rate,
+            stats.duration.as_secs_f32(),
+            saved
+        )?;
+        self.out.flush()
+    }
 }

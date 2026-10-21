@@ -78,6 +78,27 @@ impl Dataset {
         out
     }
 
+    pub fn split_validation(&self, fraction: f32, rng: &mut Rng) -> (Dataset, Dataset) {
+        let mut train = Dataset::new(self.class_names.clone());
+        let mut validation = Dataset::new(self.class_names.clone());
+        for class in 0..self.class_names.len() {
+            let mut indices: Vec<usize> = (0..self.len())
+                .filter(|&i| self.labels[i] as usize == class)
+                .collect();
+            rng.shuffle(&mut indices);
+            let held_out = (indices.len() as f32 * fraction.clamp(0.0, 1.0)).round() as usize;
+            for (n, &i) in indices.iter().enumerate() {
+                let target = if n < held_out {
+                    &mut validation
+                } else {
+                    &mut train
+                };
+                target.push(self.image(i), self.labels[i]);
+            }
+        }
+        (train.shuffled(rng), validation)
+    }
+
     pub fn sample_into(&self, index: usize, augment: Augment, out: &mut [f32]) {
         normalize_into(self.image(index), augment, out);
     }
@@ -161,5 +182,25 @@ mod tests {
         for i in 0..shuffled.len() {
             assert_eq!(shuffled.image(i)[0], shuffled.labels[i] * 100);
         }
+    }
+
+    #[test]
+    fn validation_split_is_stratified_and_disjoint() {
+        let mut ds = Dataset::new(vec!["a".into(), "b".into()]);
+        for i in 0..40u8 {
+            let label = u8::from(i >= 30);
+            let mut image = [label; IMAGE_LEN];
+            image[1] = i;
+            ds.push(&image, label);
+        }
+        let (train, validation) = ds.split_validation(0.2, &mut Rng::new(1));
+        assert_eq!(validation.class_counts(), vec![6, 2]);
+        assert_eq!(train.class_counts(), vec![24, 8]);
+        let mut ids: Vec<u8> = (0..train.len())
+            .map(|i| train.image(i)[1])
+            .chain((0..validation.len()).map(|i| validation.image(i)[1]))
+            .collect();
+        ids.sort_unstable();
+        assert_eq!(ids, (0..40).collect::<Vec<u8>>());
     }
 }

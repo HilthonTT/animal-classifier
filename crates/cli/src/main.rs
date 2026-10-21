@@ -44,6 +44,9 @@ TRAIN OPTIONS:
     --limit <N>             Only use the first N training images (quick experiments)
     --no-augment            Disable random flips / shifts during training
     --resume                Continue training the model at --model
+    --val <FRACTION>        Hold out this share of the training images to choose
+                            the best epoch (0 = choose by test accuracy) [default: 0.1]
+    --log <FILE>            Write per-epoch loss and accuracy as CSV
 
 EVALUATE / PREDICT OPTIONS:
     --tta                   Test-time augmentation: also classify the mirror image
