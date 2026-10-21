@@ -1,3 +1,4 @@
+mod activation;
 mod dense;
 mod dropout;
 mod pool;
