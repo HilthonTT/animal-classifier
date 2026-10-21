@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 300" width="256" height="256" role="img" aria-label="Pawnet logo">
+  <title>Pawnet</title>
+  <rect x="0" y="0" width="300" height="300" rx="64" fill="#0b1324"/>
+  <rect x="35" y="35" width="22" height="22" rx="5" fill="#fde047" fill-opacity="0.25"/>
+  <rect x="87" y="35" width="22" height="22" rx="5" fill="#fccc44" fill-opacity="0.74"/>
+  <rect x="113" y="35" width="22" height="22" rx="5" fill="#fcc343" fill-opacity="0.68"/>
+  <rect x="165" y="35" width="22" height="22" rx="5" fill="#fcaf40" fill-opacity="0.87"/>
+  <rect x="191" y="35" width="22" height="22" rx="5" fill="#fca63f" fill-opacity="0.65"/>
+  <rect x="243" y="35" width="22" height="22" rx="5" fill="#fb923c" fill-opacity="0.2"/>
+  <rect x="87" y="61" width="22" height="22" rx="5" fill="#fcc343" fill-opacity="0.82"/>
+  <rect x="113" y="61" width="22" height="22" rx="5" fill="#fcb942" fill-opacity="0.76"/>
+  <rect x="165" y="61" width="22" height="22" rx="5" fill="#fca63f" fill-opacity="0.64"/>
+  <rect x="191" y="61" width="22" height="22" rx="5" fill="#fb9c3d" fill-opacity="0.81"/>
+  <rect x="35" y="87" width="22" height="22" rx="5" fill="#fccc44" fill-opacity="0.63"/>
+  <rect x="61" y="87" width="22" height="22" rx="5" fill="#fcc343" fill-opacity="0.78"/>
+  <rect x="217" y="87" width="22" height="22" rx="5" fill="#f98b36" fill-opacity="0.65"/>
+  <rect x="243" y="87" width="22" height="22" rx="5" fill="#f78430" fill-opacity="0.65"/>
+  <rect x="35" y="113" width="22" height="22" rx="5" fill="#fcc343" fill-opacity="0.78"/>
+  <rect x="61" y="113" width="22" height="22" rx="5" fill="#fcb942" fill-opacity="0.93"/>
+  <rect x="217" y="113" width="22" height="22" rx="5" fill="#f78430" fill-opacity="0.67"/>
+  <rect x="243" y="113" width="22" height="22" rx="5" fill="#f57c2a" fill-opacity="0.7"/>
+  <rect x="113" y="165" width="22" height="22" rx="5" fill="#fb923c" fill-opacity="0.86"/>
+  <rect x="139" y="165" width="22" height="22" rx="5" fill="#f98b36" fill-opacity="0.98"/>
+  <rect x="165" y="165" width="22" height="22" rx="5" fill="#f78430" fill-opacity="0.84"/>
+  <rect x="87" y="191" width="22" height="22" rx="5" fill="#fb923c" fill-opacity="0.77"/>
+  <rect x="113" y="191" width="22" height="22" rx="5" fill="#f98b36" fill-opacity="0.99"/>
+  <rect x="139" y="191" width="22" height="22" rx="5" fill="#fff7ed" fill-opacity="1.0"/>
+  <rect x="165" y="191" width="22" height="22" rx="5" fill="#f57c2a" fill-opacity="0.64"/>
+  <rect x="191" y="191" width="22" height="22" rx="5" fill="#f27524" fill-opacity="0.95"/>
+  <rect x="61" y="217" width="22" height="22" rx="5" fill="#fb923c" fill-opacity="0.73"/>
+  <rect x="87" y="217" width="22" height="22" rx="5" fill="#f98b36" fill-opacity="0.67"/>
+  <rect x="113" y="217" width="22" height="22" rx="5" fill="#f78430" fill-opacity="0.66"/>
+  <rect x="139" y="217" width="22" height="22" rx="5" fill="#f57c2a" fill-opacity="0.74"/>
+  <rect x="165" y="217" width="22" height="22" rx="5" fill="#f27524" fill-opacity="0.93"/>
+  <rect x="191" y="217" width="22" height="22" rx="5" fill="#f06e1e" fill-opacity="0.69"/>
+  <rect x="217" y="217" width="22" height="22" rx="5" fill="#ee6618" fill-opacity="0.84"/>
+  <rect x="61" y="243" width="22" height="22" rx="5" fill="#f98b36" fill-opacity="0.86"/>
+  <rect x="87" y="243" width="22" height="22" rx="5" fill="#f78430" fill-opacity="0.76"/>
+  <rect x="113" y="243" width="22" height="22" rx="5" fill="#f57c2a" fill-opacity="0.83"/>
+  <rect x="165" y="243" width="22" height="22" rx="5" fill="#f06e1e" fill-opacity="0.64"/>
+  <rect x="191" y="243" width="22" height="22" rx="5" fill="#ee6618" fill-opacity="0.64"/>
+  <rect x="217" y="243" width="22" height="22" rx="5" fill="#ec5f12" fill-opacity="0.7"/>
+</svg>
