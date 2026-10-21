@@ -7,8 +7,10 @@ pub mod image;
 pub mod metrics;
 pub mod model;
 pub mod predictor;
+pub mod saliency;
 pub mod train;
 
 pub use ensemble::Ensemble;
 pub use error::{Error, Result};
 pub use predictor::Predictor;
+pub use saliency::{HeatMap, Saliency};

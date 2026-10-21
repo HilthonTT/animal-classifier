@@ -70,6 +70,10 @@ impl Predictor for Ensemble {
     fn predict(&self, input: &[f32]) -> Vec<f32> {
         average(self.members.iter().map(|m| m.predict(input)))
     }
+
+    fn logit_gradient(&self, input: &[f32], class: usize) -> Vec<f32> {
+        average(self.members.iter().map(|m| m.logit_gradient(input, class)))
+    }
 }
 
 pub fn model_files(path: &Path) -> Result<Vec<PathBuf>> {

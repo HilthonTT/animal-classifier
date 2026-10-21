@@ -52,6 +52,9 @@ EVALUATE / PREDICT OPTIONS:
     --tta                   Test-time augmentation: also classify the mirror image
     --fit <MODE>            predict only: crop | pad | stretch  [default: crop]
     --auto-contrast         predict only: stretch the brightness range first
+    --explain <OUT>         predict only: save a heat map (.ppm) of the pixels that drove
+                            the top class. OUT is a file for one image, or a folder that
+                            receives <image>-heatmap.ppm files for several
 
 EXPAND OPTIONS:
     --out <DIR>             [default: data/cifar-10-expanded]

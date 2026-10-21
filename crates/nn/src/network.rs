@@ -116,8 +116,33 @@ impl Network {
 
         let logits = activations.last().expect("input pushed above");
         let predicted = argmax(logits);
-        let (loss, mut grad) = loss.evaluate(logits, target);
+        let (loss, grad) = loss.evaluate(logits, target);
+        self.backpropagate(&activations, &caches, grad, grads);
+        (loss, predicted)
+    }
 
+    pub fn input_gradient(&self, input: &[f32], grad_output: &[f32]) -> Vec<f32> {
+        assert_eq!(input.len(), self.input_len(), "wrong input size");
+        assert_eq!(grad_output.len(), self.output_len(), "wrong gradient size");
+        let mut activations = Vec::with_capacity(self.layers.len() + 1);
+        activations.push(input.to_vec());
+        for layer in &self.layers {
+            let mut output = vec![0.0; layer.output_len()];
+            layer.forward(activations.last().expect("input pushed above"), &mut output);
+            activations.push(output);
+        }
+        let caches = vec![Vec::new(); self.layers.len()];
+        let mut grads = self.zero_grads();
+        self.backpropagate(&activations, &caches, grad_output.to_vec(), &mut grads)
+    }
+
+    fn backpropagate(
+        &self,
+        activations: &[Vec<f32>],
+        caches: &[Vec<f32>],
+        mut grad: Vec<f32>,
+        grads: &mut [Vec<f32>],
+    ) -> Vec<f32> {
         for (i, layer) in self.layers.iter().enumerate().rev() {
             let mut grad_input = vec![0.0; layer.input_len()];
             layer.backward(
@@ -130,7 +155,7 @@ impl Network {
             );
             grad = grad_input;
         }
-        (loss, predicted)
+        grad
     }
 
     /// L2 regularisation ("weight decay"): adds `lambda · w` to the gradient of every
@@ -214,5 +239,33 @@ mod tests {
         let (a, _) = net.accumulate_gradients(&input, 0, Loss::CrossEntropy, &mut rng, &mut grads);
         let (b, _) = net.accumulate_gradients(&input, 0, Loss::CrossEntropy, &mut rng, &mut grads);
         assert_ne!(a, b, "dropout masks should differ between passes");
+    }
+
+    #[test]
+    fn input_gradient_matches_finite_differences() {
+        let mut rng = Rng::new(5);
+        let mut net = Network::new(vec!["a".into(), "b".into(), "c".into()]);
+        net.push(Dense::new(4, 6, &mut rng))
+            .push(Activation::new(crate::ActivationFn::Tanh, 6))
+            .push(Dropout::new(6, 0.5))
+            .push(Dense::new(6, 3, &mut rng));
+        let input = [0.3, -0.7, 1.1, 0.2];
+        let seed = [0.5, -1.0, 2.0];
+        let score =
+            |x: &[f32]| -> f32 { net.forward(x).iter().zip(&seed).map(|(o, s)| o * s).sum() };
+        let analytic = net.input_gradient(&input, &seed);
+        assert_eq!(analytic, net.input_gradient(&input, &seed));
+        let eps = 1e-3;
+        for i in 0..input.len() {
+            let (mut plus, mut minus) = (input, input);
+            plus[i] += eps;
+            minus[i] -= eps;
+            let numerical = (score(&plus) - score(&minus)) / (2.0 * eps);
+            assert!(
+                (numerical - analytic[i]).abs() < 1e-2 * (0.1 + numerical.abs()),
+                "input {i}: analytic {} vs numerical {numerical}",
+                analytic[i]
+            );
+        }
     }
 }
