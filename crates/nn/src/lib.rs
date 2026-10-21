@@ -1,8 +1,10 @@
 mod error;
+mod format;
 mod init;
 mod layers;
 mod loss;
 mod math;
+mod network;
 mod optimizer;
 mod rng;
 mod schedule;

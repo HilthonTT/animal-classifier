@@ -4,15 +4,14 @@ mod dense;
 mod dropout;
 mod pool;
 
+pub use activation::{Activation, ActivationFn};
+pub use conv2d::Conv2d;
 pub use dense::Dense;
 pub use dropout::Dropout;
 pub use pool::MaxPool2d;
 
-use crate::{
-    error::{Error, Result},
-    layers::{activation::Activation, conv2d::Conv2d},
-    rng::Rng,
-};
+use crate::error::{Error, Result};
+use crate::rng::Rng;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
