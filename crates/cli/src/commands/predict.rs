@@ -6,7 +6,7 @@ use crate::args::Options;
 pub fn run(opts: &Options) -> AppResult {
     opts.allow(&["model", "fit", "auto-contrast", "tta"])?;
     if opts.positional.is_empty() {
-        return Err("usage: pawnet predict <image.ppm|image.bmp>…".into());
+        return Err("usage: pawnet predict <image.png|image.ppm|image.bmp>…".into());
     }
     let model = load_predictor(opts)?;
     let preprocessor = Preprocessor {

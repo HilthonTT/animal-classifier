@@ -4,7 +4,7 @@ use pawnet::nn::Network;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let [model, image] = args.as_slice() else {
-        return Err("usage: classify <model.bin> <image.ppm|image.bmp>".into());
+        return Err("usage: classify <model.bin> <image.png|image.ppm|image.bmp>".into());
     };
 
     let net = Network::load(model)?;

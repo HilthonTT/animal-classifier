@@ -4,6 +4,8 @@ use std::path::Path;
 use crate::error::{Error, Result};
 
 pub mod bmp;
+mod inflate;
+pub mod png;
 pub mod ppm;
 pub mod preprocess;
 
@@ -38,12 +40,15 @@ impl RgbImage {
     }
 
     pub fn decode(bytes: &[u8]) -> Result<Self> {
+        if bytes.starts_with(&png::SIGNATURE[..4]) {
+            return Self::decode_png(bytes);
+        }
         match bytes.get(..2) {
             Some(b"P6") | Some(b"P3") => Self::decode_ppm(bytes),
             Some(b"BM") => Self::decode_bmp(bytes),
             _ => Err(Error::format(
-                "unsupported image format: only PPM and BMP can be read without external libraries. \
-                 Convert with e.g. `magick photo.jpg photo.ppm`",
+                "unsupported image format: only PNG, PPM and BMP can be read without external libraries. \
+                 Convert with e.g. `magick photo.jpg photo.png`",
             )),
         }
     }
@@ -215,6 +220,7 @@ mod tests {
     #[test]
     fn rejects_unknown_formats() {
         assert!(RgbImage::decode(b"\x89PNG....").is_err());
+        assert!(RgbImage::decode(b"GIF89a").is_err());
         assert!(RgbImage::decode(b"P6\n2 2\n255\n\x00").is_err());
     }
 }
