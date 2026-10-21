@@ -3,19 +3,19 @@
 version = 4
 
 [[package]]
-name = "animal-classifier-cli"
-version = "0.1.0"
+name = "pawnet"
+version = "0.2.0"
 dependencies = [
- "classifier",
+ "pawnet-nn",
 ]
 
 [[package]]
-name = "classifier"
-version = "0.1.0"
+name = "pawnet-cli"
+version = "0.2.0"
 dependencies = [
- "nn",
+ "pawnet",
 ]
 
 [[package]]
-name = "nn"
-version = "0.1.0"
+name = "pawnet-nn"
+version = "0.2.0"

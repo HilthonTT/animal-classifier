@@ -1,7 +1,13 @@
 [package]
-name = "nn"
+name = "pawnet-nn"
+description = "A small neural-network framework (Conv2d, MaxPool2d, Dense, ReLU, Adam, SGD) in pure Rust with zero dependencies."
+keywords = ["neural-network", "machine-learning", "cnn", "from-scratch"]
+categories = ["science"]
 version.workspace = true
 edition.workspace = true
-license-file.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
 
-[dependencies]
+[lints]
+workspace = true

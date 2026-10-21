@@ -1,8 +1,17 @@
 [package]
-name = "classifier"
+name = "pawnet"
+description = "Train and run a CNN that recognises animals (CIFAR-10 bird, cat, deer, dog, frog, horse)."
+keywords = ["neural-network", "image-classification", "cifar-10", "from-scratch"]
+categories = ["science", "multimedia::images"]
+readme = "../../README.md"
 version.workspace = true
 edition.workspace = true
-license-file.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [dependencies]
-nn = { version = "0.1.0", path = "../nn" }
+pawnet-nn.workspace = true
+
+[lints]
+workspace = true

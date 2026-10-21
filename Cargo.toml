@@ -1,8 +1,29 @@
 [workspace]
 resolver = "3"
-members = ["crates/*"]
+members = ["crates/nn", "crates/classifier", "crates/cli"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
-license-file = "LICENSE"
+rust-version = "1.85"
+license = "MIT"
+repository = "https://github.com/HilthonTT/pawnet"
+
+[workspace.dependencies]
+pawnet-nn = { path = "crates/nn" }
+pawnet = { path = "crates/classifier" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.test]
+opt-level = 2

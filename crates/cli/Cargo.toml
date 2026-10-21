@@ -1,8 +1,20 @@
 [package]
-name = "animal-classifier-cli"
+name = "pawnet-cli"
+description = "Command-line interface for training and running Pawnet."
+categories = ["command-line-utilities"]
 version.workspace = true
 edition.workspace = true
-license-file.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "pawnet"
+path = "src/main.rs"
+doc = false
 
 [dependencies]
-classifier = { version = "0.1.0", path = "../classifier" }
+pawnet.workspace = true
+
+[lints]
+workspace = true
