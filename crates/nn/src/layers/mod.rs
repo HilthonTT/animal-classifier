@@ -1,4 +1,5 @@
 mod activation;
+mod conv2d;
 mod dense;
 mod dropout;
 mod pool;
@@ -9,6 +10,7 @@ pub use pool::MaxPool2d;
 
 use crate::{
     error::{Error, Result},
+    layers::{activation::Activation, conv2d::Conv2d},
     rng::Rng,
 };
 
@@ -35,6 +37,16 @@ impl TryFrom<u8> for LayerKind {
             other => Err(Error::format(format!("unknown layer kind {other}"))),
         }
     }
+}
+
+pub(crate) fn from_config(kind: LayerKind, config: &[u32]) -> Result<Box<dyn Layer>> {
+    Ok(match kind {
+        LayerKind::Dense => Box::new(Dense::from_config(config)?),
+        LayerKind::Conv2d => Box::new(Conv2d::from_config(config)?),
+        LayerKind::MaxPool2d => Box::new(MaxPool2d::from_config(config)?),
+        LayerKind::Activation => Box::new(Activation::from_config(config)?),
+        LayerKind::Dropout => Box::new(Dropout::from_config(config)?),
+    })
 }
 
 pub trait Layer: Send + Sync {
