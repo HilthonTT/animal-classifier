@@ -70,7 +70,7 @@ impl Layer for Dropout {
         rng: &mut Rng,
         cache: &mut Vec<f32>,
     ) {
-        // The cache holds each value's mutliplier: 0 (dropped) or 1 / (1 - rate) (kept).
+        // The cache holds each value's multiplier: 0 (dropped) or 1 / (1 - rate) (kept).
         let keep_scale = 1.0 / (1.0 - self.rate);
         cache.clear();
         cache.extend((0..self.len).map(|_| {

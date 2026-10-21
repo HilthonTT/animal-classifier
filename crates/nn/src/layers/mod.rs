@@ -103,3 +103,14 @@ pub(crate) fn parse_config<const N: usize>(config: &[u32], layer: &str) -> Resul
     }
     Ok(std::array::from_fn(|i| config[i] as usize))
 }
+
+pub(crate) fn checked_len(factors: &[usize]) -> Option<usize> {
+    factors
+        .iter()
+        .try_fold(1usize, |acc, &f| acc.checked_mul(f))
+        .filter(|&n| n <= u32::MAX as usize)
+}
+
+pub(crate) fn checked_param_len(weights: &[usize], biases: usize) -> Option<usize> {
+    checked_len(weights).and_then(|w| checked_len(&[w.checked_add(biases)?]))
+}

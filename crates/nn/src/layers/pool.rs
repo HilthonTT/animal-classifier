@@ -1,4 +1,4 @@
-use super::{Layer, LayerKind, parse_config};
+use super::{Layer, LayerKind, checked_len, parse_config};
 use crate::error::{Error, Result};
 
 /// Max pooling over non-overlapping `size × size` windows (stride = size).
@@ -25,6 +25,9 @@ impl MaxPool2d {
             return Err(Error::format(
                 "MaxPool2d window must fit inside a non-empty input",
             ));
+        }
+        if checked_len(&[channels, in_h, in_w]).is_none() {
+            return Err(Error::format("MaxPool2d layer is too large"));
         }
         Ok(Self {
             channels,
@@ -140,5 +143,10 @@ mod tests {
         let mut grad_input = [9.0; 8];
         pool.backward(&input, &output, &[], &[1.0, 2.0], &mut grad_input, &mut []);
         assert_eq!(grad_input, [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0]);
+    }
+
+    #[test]
+    fn rejects_oversized_shapes() {
+        assert!(MaxPool2d::from_config(&[u32::MAX, u32::MAX, u32::MAX, 2]).is_err());
     }
 }

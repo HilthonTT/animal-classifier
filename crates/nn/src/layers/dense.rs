@@ -1,4 +1,4 @@
-use super::{Layer, LayerKind, parse_config};
+use super::{Layer, LayerKind, checked_param_len, parse_config};
 use crate::error::{Error, Result};
 use crate::init::Init;
 use crate::math::{axpy, dot};
@@ -33,6 +33,9 @@ impl Dense {
     fn with_shape(inputs: usize, outputs: usize) -> Result<Self> {
         if inputs == 0 || outputs == 0 {
             return Err(Error::format("Dense dimensions must be non-zero"));
+        }
+        if checked_param_len(&[inputs, outputs], outputs).is_none() {
+            return Err(Error::format("Dense layer is too large"));
         }
         Ok(Self {
             inputs,
@@ -105,5 +108,16 @@ impl Layer for Dense {
             axpy(g, input, &mut grad_weights[range.clone()]);
             axpy(g, &weights[range], grad_input);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_oversized_shapes() {
+        assert!(Dense::from_config(&[u32::MAX, u32::MAX]).is_err());
+        assert!(Dense::from_config(&[3, 2]).is_ok());
     }
 }

@@ -1,4 +1,4 @@
-use super::{Layer, LayerKind, parse_config};
+use super::{Layer, LayerKind, checked_len, checked_param_len, parse_config};
 use crate::error::{Error, Result};
 use crate::init::Init;
 use crate::math::{axpy, dot};
@@ -91,6 +91,14 @@ impl Conv2d {
                 "Conv2d kernel is larger than the padded input",
             ));
         }
+        let (out_h, out_w) = (in_h + 2 * pad - kernel + 1, in_w + 2 * pad - kernel + 1);
+        let fits = checked_len(&[in_channels, in_h, in_w]).is_some()
+            && checked_len(&[out_channels, out_h, out_w]).is_some()
+            && checked_param_len(&[out_channels, in_channels, kernel, kernel], out_channels)
+                .is_some();
+        if !fits {
+            return Err(Error::format("Conv2d layer is too large"));
+        }
         let mut layer = Self {
             in_channels,
             in_h,
@@ -98,8 +106,8 @@ impl Conv2d {
             out_channels,
             kernel,
             pad,
-            out_h: in_h + 2 * pad - kernel + 1,
-            out_w: in_w + 2 * pad - kernel + 1,
+            out_h,
+            out_w,
             params: Vec::new(),
         };
         layer.params = vec![0.0; layer.weight_count() + out_channels];
@@ -281,5 +289,11 @@ mod tests {
         let mut output = vec![0.0; 4];
         conv.forward(&input, &mut output);
         assert_eq!(output, vec![12.5, 16.5, 24.5, 28.5]);
+    }
+
+    #[test]
+    fn rejects_oversized_shapes() {
+        assert!(Conv2d::from_config(&[u32::MAX, u32::MAX, u32::MAX, 1, 1, 0]).is_err());
+        assert!(Conv2d::from_config(&[1, 4, 4, u32::MAX, u32::MAX, 0]).is_err());
     }
 }
