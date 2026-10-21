@@ -1,0 +1,8 @@
+[package]
+name = "animal-classifier-cli"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+
+[dependencies]
+classifier = { version = "0.1.0", path = "../classifier" }
