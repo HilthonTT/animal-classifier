@@ -45,19 +45,57 @@ impl MaxPool2d {
         self.in_w / self.size
     }
 
-    /// Index (into `input`) of the maximum of the window feeding output `(c, oy, ox)`.
-    fn argmax(&self, input: &[f32], c: usize, oy: usize, ox: usize) -> usize {
-        let plane = c * self.in_h * self.in_w;
-        let mut best = plane + oy * self.size * self.in_w + ox * self.size;
-        for dy in 0..self.size {
-            for dx in 0..self.size {
-                let i = plane + (oy * self.size + dy) * self.in_w + ox * self.size + dx;
-                if input[i] > input[best] {
-                    best = i;
+    fn for_each_window(&self, input: &[f32], mut f: impl FnMut(usize, usize)) {
+        let (oh, ow, s) = (self.out_h(), self.out_w(), self.size);
+        if s == 2 {
+            for c in 0..self.channels {
+                let plane = c * self.in_h * self.in_w;
+                for oy in 0..oh {
+                    let top = plane + 2 * oy * self.in_w;
+                    let bottom = top + self.in_w;
+                    let (upper, lower) =
+                        (&input[top..top + 2 * ow], &input[bottom..bottom + 2 * ow]);
+                    for (ox, (u, l)) in upper.chunks_exact(2).zip(lower.chunks_exact(2)).enumerate()
+                    {
+                        let mut best = (u[0], top + 2 * ox);
+                        for (v, i) in [
+                            (u[1], top + 2 * ox + 1),
+                            (l[0], bottom + 2 * ox),
+                            (l[1], bottom + 2 * ox + 1),
+                        ] {
+                            if v > best.0 {
+                                best = (v, i);
+                            }
+                        }
+                        f((c * oh + oy) * ow + ox, best.1);
+                    }
+                }
+            }
+            return;
+        }
+        let mut best = vec![0usize; ow];
+        for c in 0..self.channels {
+            let plane = c * self.in_h * self.in_w;
+            for oy in 0..oh {
+                for dy in 0..s {
+                    let row = plane + (oy * s + dy) * self.in_w;
+                    for (ox, best) in best.iter_mut().enumerate() {
+                        let start = row + ox * s;
+                        if dy == 0 {
+                            *best = start;
+                        }
+                        for (i, &v) in input[start..start + s].iter().enumerate() {
+                            if v > input[*best] {
+                                *best = start + i;
+                            }
+                        }
+                    }
+                }
+                for (ox, &best) in best.iter().enumerate() {
+                    f((c * oh + oy) * ow + ox, best);
                 }
             }
         }
-        best
     }
 }
 
@@ -95,14 +133,7 @@ impl Layer for MaxPool2d {
     }
 
     fn forward(&self, input: &[f32], output: &mut [f32]) {
-        let (oh, ow) = (self.out_h(), self.out_w());
-        for c in 0..self.channels {
-            for oy in 0..oh {
-                for ox in 0..ow {
-                    output[(c * oh + oy) * ow + ox] = input[self.argmax(input, c, oy, ox)];
-                }
-            }
-        }
+        self.for_each_window(input, |o, i| output[o] = input[i]);
     }
 
     fn backward(
@@ -115,16 +146,8 @@ impl Layer for MaxPool2d {
         _grad_params: &mut [f32],
     ) {
         // Only the winning input of each window receives the gradient.
-        let (oh, ow) = (self.out_h(), self.out_w());
         grad_input.fill(0.0);
-        for c in 0..self.channels {
-            for oy in 0..oh {
-                for ox in 0..ow {
-                    grad_input[self.argmax(input, c, oy, ox)] +=
-                        grad_output[(c * oh + oy) * ow + ox];
-                }
-            }
-        }
+        self.for_each_window(input, |o, i| grad_input[i] += grad_output[o]);
     }
 }
 
@@ -143,6 +166,18 @@ mod tests {
         let mut grad_input = [9.0; 8];
         pool.backward(&input, &output, &[], &[1.0, 2.0], &mut grad_input, &mut []);
         assert_eq!(grad_input, [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0]);
+    }
+
+    #[test]
+    fn three_by_three_windows_pick_the_maximum() {
+        let pool = MaxPool2d::new(1, 3, 6, 3);
+        let input = [
+            1.0, 2.0, 3.0, 9.0, 0.0, 0.0, 4.0, 8.0, 5.0, 0.0, 0.0, 0.0, 6.0, 7.0, 0.0, 0.0, 0.0,
+            1.0,
+        ];
+        let mut output = [0.0; 2];
+        pool.forward(&input, &mut output);
+        assert_eq!(output, [8.0, 9.0]);
     }
 
     #[test]

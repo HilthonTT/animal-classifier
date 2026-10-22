@@ -1,7 +1,7 @@
 use super::{Layer, LayerKind, checked_len, checked_param_len, parse_config};
 use crate::error::{Error, Result};
 use crate::init::Init;
-use crate::math::{axpy, dot};
+use crate::math::{axpy, gemm, gemm_nt, transpose, with_scratch};
 use crate::rng::Rng;
 
 /// 2-D convolution with a square kernel, stride 1 and zero padding.
@@ -125,32 +125,133 @@ impl Conv2d {
         (start, end.max(start))
     }
 
-    /// Calls `f(weight_index, ic, ky, kx, y_range, x_range)` for every kernel tap of output
-    /// channel `oc`, with the output rows/columns where that tap overlaps the input.
-    fn for_each_tap(
-        &self,
-        oc: usize,
-        mut f: impl FnMut(usize, usize, usize, usize, (usize, usize), (usize, usize)),
-    ) {
+    fn patch_len(&self) -> usize {
+        self.in_channels * self.kernel * self.kernel
+    }
+
+    fn for_each_row(&self, mut f: impl FnMut(usize, usize, usize, usize)) {
         let k = self.kernel;
         for ic in 0..self.in_channels {
             for ky in 0..k {
-                let ys = Self::valid_range(ky, self.pad, self.in_h, self.out_h);
                 for kx in 0..k {
-                    let xs = Self::valid_range(kx, self.pad, self.in_w, self.out_w);
-                    if ys.0 < ys.1 && xs.0 < xs.1 {
-                        f(
-                            ((oc * self.in_channels + ic) * k + ky) * k + kx,
-                            ic,
-                            ky,
-                            kx,
-                            ys,
-                            xs,
-                        );
-                    }
+                    f((ic * k + ky) * k + kx, ic, ky, kx);
                 }
             }
         }
+    }
+
+    fn im2col(&self, input: &[f32], cols: &mut [f32]) {
+        let (in_plane, out_plane) = (self.in_h * self.in_w, self.out_h * self.out_w);
+        cols.fill(0.0);
+        self.for_each_row(|row, ic, ky, kx| {
+            let (y0, y1) = Self::valid_range(ky, self.pad, self.in_h, self.out_h);
+            let (x0, x1) = Self::valid_range(kx, self.pad, self.in_w, self.out_w);
+            if y0 >= y1 || x0 >= x1 {
+                return;
+            }
+            let src_plane = &input[ic * in_plane..(ic + 1) * in_plane];
+            let dst_plane = &mut cols[row * out_plane..(row + 1) * out_plane];
+            for oy in y0..y1 {
+                let src = (oy + ky - self.pad) * self.in_w + (x0 + kx - self.pad);
+                let dst = oy * self.out_w + x0;
+                dst_plane[dst..dst + x1 - x0].copy_from_slice(&src_plane[src..src + x1 - x0]);
+            }
+        });
+    }
+
+    fn col2im(&self, cols: &[f32], grad_input: &mut [f32]) {
+        let (in_plane, out_plane) = (self.in_h * self.in_w, self.out_h * self.out_w);
+        grad_input.fill(0.0);
+        self.for_each_row(|row, ic, ky, kx| {
+            let (y0, y1) = Self::valid_range(ky, self.pad, self.in_h, self.out_h);
+            let (x0, x1) = Self::valid_range(kx, self.pad, self.in_w, self.out_w);
+            if y0 >= y1 || x0 >= x1 {
+                return;
+            }
+            let src_plane = &cols[row * out_plane..(row + 1) * out_plane];
+            let dst_plane = &mut grad_input[ic * in_plane..(ic + 1) * in_plane];
+            for oy in y0..y1 {
+                let dst = (oy + ky - self.pad) * self.in_w + (x0 + kx - self.pad);
+                let src = oy * self.out_w + x0;
+                axpy(
+                    1.0,
+                    &src_plane[src..src + x1 - x0],
+                    &mut dst_plane[dst..dst + x1 - x0],
+                );
+            }
+        });
+    }
+
+    fn backward_cols(
+        &self,
+        cols: &[f32],
+        grad_output: &[f32],
+        grad_input: &mut [f32],
+        grad_params: &mut [f32],
+    ) {
+        let n_weights = self.weight_count();
+        let (patch, out_plane) = (self.patch_len(), self.out_h * self.out_w);
+        let (grad_weights, grad_bias) = grad_params.split_at_mut(n_weights);
+        for (go, gb) in grad_output.chunks_exact(out_plane).zip(grad_bias) {
+            *gb += go.iter().sum::<f32>();
+        }
+        if patch < 64 {
+            gemm_nt(
+                self.out_channels,
+                patch,
+                out_plane,
+                grad_output,
+                cols,
+                grad_weights,
+            );
+        } else {
+            with_scratch(patch * out_plane, |cols_t| {
+                transpose(patch, out_plane, cols, cols_t);
+                gemm(
+                    self.out_channels,
+                    patch,
+                    out_plane,
+                    grad_output,
+                    cols_t,
+                    grad_weights,
+                );
+            });
+        }
+        with_scratch(n_weights, |weights_t| {
+            transpose(
+                self.out_channels,
+                patch,
+                &self.params[..n_weights],
+                weights_t,
+            );
+            with_scratch(patch * out_plane, |grad_cols| {
+                gemm(
+                    patch,
+                    out_plane,
+                    self.out_channels,
+                    weights_t,
+                    grad_output,
+                    grad_cols,
+                );
+                self.col2im(grad_cols, grad_input);
+            });
+        });
+    }
+
+    fn forward_cols(&self, cols: &[f32], output: &mut [f32]) {
+        let (weights, bias) = self.params.split_at(self.weight_count());
+        let out_plane = self.out_h * self.out_w;
+        for (out, &b) in output.chunks_exact_mut(out_plane).zip(bias) {
+            out.fill(b);
+        }
+        gemm(
+            self.out_channels,
+            out_plane,
+            self.patch_len(),
+            weights,
+            cols,
+            output,
+        );
     }
 }
 
@@ -208,59 +309,41 @@ impl Layer for Conv2d {
     }
 
     fn forward(&self, input: &[f32], output: &mut [f32]) {
-        let (weights, bias) = self.params.split_at(self.weight_count());
-        let (in_plane, out_plane) = (self.in_h * self.in_w, self.out_h * self.out_w);
-        for oc in 0..self.out_channels {
-            let out = &mut output[oc * out_plane..(oc + 1) * out_plane];
-            out.fill(bias[oc]);
-            self.for_each_tap(oc, |wi, ic, ky, kx, (y0, y1), (x0, x1)| {
-                let src_plane = &input[ic * in_plane..(ic + 1) * in_plane];
-                let len = x1 - x0;
-                for oy in y0..y1 {
-                    let src = (oy + ky - self.pad) * self.in_w + (x0 + kx - self.pad);
-                    let dst = oy * self.out_w + x0;
-                    axpy(
-                        weights[wi],
-                        &src_plane[src..src + len],
-                        &mut out[dst..dst + len],
-                    );
-                }
-            });
-        }
+        with_scratch(self.patch_len() * self.out_h * self.out_w, |cols| {
+            self.im2col(input, cols);
+            self.forward_cols(cols, output);
+        });
+    }
+
+    fn forward_train(
+        &self,
+        input: &[f32],
+        output: &mut [f32],
+        _rng: &mut Rng,
+        cache: &mut Vec<f32>,
+    ) {
+        cache.clear();
+        cache.resize(self.patch_len() * self.out_h * self.out_w, 0.0);
+        self.im2col(input, cache);
+        self.forward_cols(cache, output);
     }
 
     fn backward(
         &self,
         input: &[f32],
         _output: &[f32],
-        _cache: &[f32],
+        cache: &[f32],
         grad_output: &[f32],
         grad_input: &mut [f32],
         grad_params: &mut [f32],
     ) {
-        let n_weights = self.weight_count();
-        let weights = &self.params[..n_weights];
-        let (grad_weights, grad_bias) = grad_params.split_at_mut(n_weights);
-        let (in_plane, out_plane) = (self.in_h * self.in_w, self.out_h * self.out_w);
-        grad_input.fill(0.0);
-        for oc in 0..self.out_channels {
-            let go = &grad_output[oc * out_plane..(oc + 1) * out_plane];
-            grad_bias[oc] += go.iter().sum::<f32>();
-            self.for_each_tap(oc, |wi, ic, ky, kx, (y0, y1), (x0, x1)| {
-                let plane = ic * in_plane..(ic + 1) * in_plane;
-                let len = x1 - x0;
-                let mut grad_w = 0.0;
-                for oy in y0..y1 {
-                    let src = (oy + ky - self.pad) * self.in_w + (x0 + kx - self.pad);
-                    let g = &go[oy * self.out_w + x0..oy * self.out_w + x1];
-                    grad_w += dot(g, &input[plane.clone()][src..src + len]);
-                    axpy(
-                        weights[wi],
-                        g,
-                        &mut grad_input[plane.clone()][src..src + len],
-                    );
-                }
-                grad_weights[wi] += grad_w;
+        let (patch, out_plane) = (self.patch_len(), self.out_h * self.out_w);
+        if cache.len() == patch * out_plane {
+            self.backward_cols(cache, grad_output, grad_input, grad_params);
+        } else {
+            with_scratch(patch * out_plane, |cols| {
+                self.im2col(input, cols);
+                self.backward_cols(cols, grad_output, grad_input, grad_params);
             });
         }
     }
