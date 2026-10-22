@@ -1,25 +1,30 @@
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
+use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 
-use pawnet::data::cifar::{self, Split};
+use pawnet::data::AugmentOptions;
+use pawnet::data::cifar::{DatasetKind, Split};
 use pawnet::model::{self, ModelOptions};
-use pawnet::nn::{Adam, Network, Optimizer, Rng, Sgd};
+use pawnet::nn::{Adam, AdamW, Network, Optimizer, RmsProp, Rng, Sgd};
 use pawnet::train::{self, EpochStats, TrainConfig};
 
-use super::{AppResult, DEFAULT_DATA_DIR, DEFAULT_MODEL_PATH, time_seed};
+use super::{AppResult, DEFAULT_MODEL_PATH, dataset, time_seed};
 use crate::args::Options;
 
 pub fn run(opts: &Options) -> AppResult {
     opts.allow(&[
         "data",
+        "dataset",
         "model",
         "threads",
         "epochs",
         "batch-size",
         "lr",
         "schedule",
+        "warmup",
         "optimizer",
+        "weight-decay",
         "loss",
         "l2",
         "clip",
@@ -27,6 +32,14 @@ pub fn run(opts: &Options) -> AppResult {
         "init",
         "dropout",
         "width",
+        "batch-norm",
+        "residual",
+        "pool",
+        "global-pool",
+        "jitter",
+        "cutout",
+        "mixup",
+        "patience",
         "seed",
         "limit",
         "no-augment",
@@ -34,7 +47,7 @@ pub fn run(opts: &Options) -> AppResult {
         "val",
         "log",
     ])?;
-    let data_dir = opts.path("data", DEFAULT_DATA_DIR);
+    let (kind, data_dir) = dataset(opts, DatasetKind::Animals)?;
     let model_path = opts.path("model", DEFAULT_MODEL_PATH);
     let defaults = TrainConfig::default();
     let config = TrainConfig {
@@ -42,11 +55,17 @@ pub fn run(opts: &Options) -> AppResult {
         batch_size: opts.get("batch-size", defaults.batch_size)?,
         learning_rate: opts.get("lr", defaults.learning_rate)?,
         schedule: opts.get("schedule", defaults.schedule)?,
+        warmup: opts.get("warmup", defaults.warmup)?,
         loss: opts.get("loss", defaults.loss)?,
         l2: opts.get("l2", defaults.l2)?,
         gradient_clipping: opts.get_opt("clip")?,
         threads: opts.get("threads", defaults.threads)?,
         augment: !opts.flag("no-augment"),
+        augmentation: AugmentOptions {
+            color_jitter: opts.get("jitter", defaults.augmentation.color_jitter)?,
+            cutout: opts.get("cutout", defaults.augmentation.cutout)?,
+        },
+        mixup: opts.get("mixup", defaults.mixup)?,
         verbose: true,
     };
     let model_defaults = ModelOptions::default();
@@ -55,6 +74,10 @@ pub fn run(opts: &Options) -> AppResult {
         init: opts.get("init", model_defaults.init)?,
         dropout: opts.get("dropout", model_defaults.dropout)?,
         width: opts.get("width", model_defaults.width)?,
+        batch_norm: opts.flag("batch-norm"),
+        residual: opts.flag("residual"),
+        pool: opts.get("pool", model_defaults.pool)?,
+        global_pool: opts.flag("global-pool"),
     };
     if !(0.0..1.0).contains(&model_options.dropout) || model_options.width == 0 {
         return Err("--dropout must be in [0, 1) and --width at least 1".into());
@@ -65,15 +88,32 @@ pub fn run(opts: &Options) -> AppResult {
     {
         return Err("--clip must be a positive number".into());
     }
+    if !(0.0..=1.0).contains(&config.augmentation.color_jitter) {
+        return Err("--jitter must be in [0, 1]".into());
+    }
+    if !(config.mixup >= 0.0 && config.mixup.is_finite()) {
+        return Err("--mixup must be zero or a positive number".into());
+    }
+    let patience: Option<usize> = opts.get_opt("patience")?;
+    if patience == Some(0) {
+        return Err("--patience must be at least 1".into());
+    }
+    let optimizer_name = opts.string("optimizer", "adam");
+    let weight_decay: f32 = opts.get("weight-decay", 0.01)?;
+    if opts.flag("weight-decay") && optimizer_name != "adamw" {
+        return Err(
+            "--weight-decay only applies to --optimizer adamw (use --l2 with the others)".into(),
+        );
+    }
     let val_fraction: f32 = opts.get("val", 0.1)?;
     if !(0.0..1.0).contains(&val_fraction) {
         return Err("--val must be in [0, 1)".into());
     }
     let seed = opts.get("seed", time_seed())?;
 
-    println!("Loading CIFAR-10 animals from {}", data_dir.display());
-    let mut train_set = cifar::load_animals(&data_dir, Split::Train)?;
-    let test_set = cifar::load_animals(&data_dir, Split::Test)?;
+    println!("Loading {kind} from {}", data_dir.display());
+    let mut train_set = kind.load(&data_dir, Split::Train)?;
+    let test_set = kind.load(&data_dir, Split::Test)?;
     if let Some(limit) = opts.get_opt::<usize>("limit")? {
         train_set.truncate(limit);
     }
@@ -94,7 +134,11 @@ pub fn run(opts: &Options) -> AppResult {
         val_set.as_ref().map_or(0, |v| v.len()),
         test_set.len()
     );
-    println!("  classes: {}", train_set.class_names.join(", "));
+    if train_set.class_names.len() <= 10 {
+        println!("  classes: {}", train_set.class_names.join(", "));
+    } else {
+        println!("  {} classes", train_set.class_names.len());
+    }
     match &val_set {
         Some(_) => println!("  the best epoch is chosen by validation accuracy\n"),
         None => println!("  --val 0: the best epoch is chosen by test accuracy (optimistic)\n"),
@@ -121,16 +165,28 @@ pub fn run(opts: &Options) -> AppResult {
     }
     print!("{}", net.summary());
 
-    let mut optimizer: Box<dyn Optimizer> = match opts.string("optimizer", "adam").as_str() {
+    let mut optimizer: Box<dyn Optimizer> = match optimizer_name.as_str() {
         "adam" => Box::new(Adam::new(config.learning_rate)),
+        "adamw" => Box::new(AdamW::new(config.learning_rate, weight_decay)),
         "sgd" => Box::new(Sgd::new(config.learning_rate, 0.9)),
-        other => return Err(format!("unknown optimizer `{other}` (expected adam or sgd)").into()),
+        "rmsprop" => Box::new(RmsProp::new(config.learning_rate)),
+        other => {
+            return Err(format!(
+                "unknown optimizer `{other}` (expected adam, adamw, sgd or rmsprop)"
+            )
+            .into());
+        }
     };
     let clip = config
         .gradient_clipping
         .map_or("off".to_string(), |c| c.to_string());
+    let warmup = if config.warmup > 0 {
+        format!(", {} warm-up epochs", config.warmup)
+    } else {
+        String::new()
+    };
     println!(
-        "\nTraining for {} epochs: batch {}, lr {} ({}), loss {}, l2 {}, clip {clip}, {} threads, seed {seed}\n",
+        "\nTraining for {} epochs: {optimizer_name}, batch {}, lr {} ({}{warmup}), loss {}, l2 {}, clip {clip}, {} threads, seed {seed}",
         config.epochs,
         config.batch_size,
         config.learning_rate,
@@ -139,6 +195,28 @@ pub fn run(opts: &Options) -> AppResult {
         config.l2,
         config.threads
     );
+    let mut extras = Vec::new();
+    if config.augmentation.color_jitter > 0.0 {
+        extras.push(format!(
+            "colour jitter {}",
+            config.augmentation.color_jitter
+        ));
+    }
+    if config.augmentation.cutout > 0 {
+        extras.push(format!("cutout {}px", config.augmentation.cutout));
+    }
+    if config.mixup > 0.0 {
+        extras.push(format!("mixup alpha {}", config.mixup));
+    }
+    if let Some(patience) = patience {
+        extras.push(format!(
+            "early stopping after {patience} epochs without improvement"
+        ));
+    }
+    if !extras.is_empty() {
+        println!("  {}", extras.join(", "));
+    }
+    println!();
 
     let mut best = if opts.flag("resume") {
         let accuracy = train::evaluate(&net, selection_set, config.threads, false).accuracy();
@@ -151,6 +229,7 @@ pub fn run(opts: &Options) -> AppResult {
         f32::NEG_INFINITY
     };
     let mut improved = false;
+    let mut since_best = 0;
     train::train(
         &mut net,
         &train_set,
@@ -166,9 +245,11 @@ pub fn run(opts: &Options) -> AppResult {
             let saved = if score > best {
                 best = score;
                 improved = true;
+                since_best = 0;
                 net.save(&model_path)?;
                 "  [saved]"
             } else {
+                since_best += 1;
                 ""
             };
             let val = val_accuracy.map_or(String::new(), |v| format!("  val {:5.1}%", v * 100.0));
@@ -185,7 +266,13 @@ pub fn run(opts: &Options) -> AppResult {
             if let Some(log) = log.as_mut() {
                 log.record(stats, val_accuracy, test_accuracy, !saved.is_empty())?;
             }
-            Ok(())
+            if patience.is_some_and(|p| since_best >= p) {
+                println!(
+                    "\nNo {selection_name} improvement for {since_best} epochs; stopping early"
+                );
+                return Ok(ControlFlow::Break(()));
+            }
+            Ok(ControlFlow::Continue(()))
         },
     )?;
 

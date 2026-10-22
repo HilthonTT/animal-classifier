@@ -2,6 +2,9 @@ pub trait Optimizer {
     fn step(&mut self, params: &mut [&mut [f32]], grads: &[Vec<f32>]);
     fn learning_rate(&self) -> f32;
     fn set_learning_rate(&mut self, learning_rate: f32);
+    fn decoupled_weight_decay(&self) -> f32 {
+        0.0
+    }
 }
 
 /// Gradient clipping: if the combined L2 norm of all gradients exceeds `max_norm`, scales
@@ -118,6 +121,79 @@ impl Optimizer for Adam {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct AdamW {
+    adam: Adam,
+    weight_decay: f32,
+}
+
+impl AdamW {
+    pub fn new(learning_rate: f32, weight_decay: f32) -> Self {
+        Self {
+            adam: Adam::new(learning_rate),
+            weight_decay,
+        }
+    }
+}
+
+impl Optimizer for AdamW {
+    fn step(&mut self, params: &mut [&mut [f32]], grads: &[Vec<f32>]) {
+        self.adam.step(params, grads);
+    }
+
+    fn learning_rate(&self) -> f32 {
+        self.adam.learning_rate
+    }
+
+    fn set_learning_rate(&mut self, learning_rate: f32) {
+        self.adam.learning_rate = learning_rate;
+    }
+
+    fn decoupled_weight_decay(&self) -> f32 {
+        self.weight_decay
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct RmsProp {
+    learning_rate: f32,
+    rho: f32,
+    epsilon: f32,
+    v: Vec<Vec<f32>>,
+}
+
+impl RmsProp {
+    pub fn new(learning_rate: f32) -> Self {
+        Self {
+            learning_rate,
+            rho: 0.9,
+            epsilon: 1e-8,
+            v: Vec::new(),
+        }
+    }
+}
+
+impl Optimizer for RmsProp {
+    fn step(&mut self, params: &mut [&mut [f32]], grads: &[Vec<f32>]) {
+        ensure_state(&mut self.v, grads);
+        let rho = self.rho;
+        for ((p, g), v) in params.iter_mut().zip(grads).zip(&mut self.v) {
+            for ((p, &g), v) in p.iter_mut().zip(g).zip(v.iter_mut()) {
+                *v = rho * *v + (1.0 - rho) * g * g;
+                *p -= self.learning_rate * g / (v.sqrt() + self.epsilon);
+            }
+        }
+    }
+
+    fn learning_rate(&self) -> f32 {
+        self.learning_rate
+    }
+
+    fn set_learning_rate(&mut self, learning_rate: f32) {
+        self.learning_rate = learning_rate;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -140,6 +216,16 @@ mod tests {
     #[test]
     fn adam_converges() {
         converges(Adam::new(0.05));
+    }
+
+    #[test]
+    fn adamw_converges() {
+        converges(AdamW::new(0.05, 0.0));
+    }
+
+    #[test]
+    fn rmsprop_converges() {
+        converges(RmsProp::new(0.01));
     }
 
     #[test]

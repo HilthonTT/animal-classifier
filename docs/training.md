@@ -24,8 +24,10 @@ corrupt model behind.
 | `--epochs N` | passes over the training set | 20 |
 | `--batch-size N` | images per weight update | 64 |
 | `--lr RATE` | learning rate of the first epoch | 0.001 |
-| `--schedule SPEC` | `constant`, `exp:<decay>`, `step:<factor>:<every>` or `time:<decay>` | `exp:0.9` |
-| `--optimizer NAME` | `adam` or `sgd` (with 0.9 momentum) | `adam` |
+| `--schedule SPEC` | `constant`, `exp:<decay>`, `step:<factor>:<every>`, `time:<decay>` or `cosine[:<min>]` (cosine annealing down to `min` × the initial rate) | `exp:0.9` |
+| `--warmup N` | ramp the learning rate up linearly over the first N epochs | 0 |
+| `--optimizer NAME` | `adam`, `adamw`, `sgd` (with 0.9 momentum) or `rmsprop` | `adam` |
+| `--weight-decay W` | AdamW's decoupled weight decay | 0.01 |
 | `--loss NAME` | `cross-entropy` or `mse` | `cross-entropy` |
 | `--l2 LAMBDA` | L2 regularisation / weight decay (try `1e-4`) | 0 |
 | `--clip NORM` | gradient clipping by global norm (try `5`) | off |
@@ -33,7 +35,16 @@ corrupt model behind.
 | `--init NAME` | `he`, `xavier`, `uniform`, `zero` | `he` |
 | `--dropout RATE` | dropout before the output layer (0 disables it) | 0.25 |
 | `--width N` | filters in the first convolution; later blocks use 2× and 4× | 16 |
-| `--no-augment` | turn off the random flips and shifts | on |
+| `--batch-norm` | batch normalisation after every convolution and the hidden layer | off |
+| `--residual` | add a residual block (two convolutions and a shortcut) to each stage | off |
+| `--pool NAME` | `max` or `avg` pooling between stages | `max` |
+| `--global-pool` | global average pooling instead of the 128-unit hidden layer | off |
+| `--jitter S` | random brightness, contrast and saturation, each scaled by a factor in `[1 − S, 1 + S]` | 0 |
+| `--cutout N` | blank a random N×N square of every training image | 0 |
+| `--mixup A` | blend each image with a random other one, and their labels, with a weight drawn from Beta(A, A) | 0 |
+| `--no-augment` | turn off all of the random augmentation above, and the flips and shifts | on |
+| `--patience N` | stop after N epochs without a new best model | off |
+| `--dataset NAME` | `animals` (6 classes), `cifar10` (all 10 classes) or `cifar100` | `animals` |
 | `--limit N` | train on only the first N images | all |
 | `--seed N` | make a run reproducible | random |
 | `--resume` | continue training the model at `--model` | off |
@@ -49,11 +60,17 @@ use pawnet::train::TrainConfig;
 
 let config = TrainConfig::new()
     .epochs(30)
-    .schedule(LrSchedule::Step { factor: 0.5, every: 10 })
+    .schedule(LrSchedule::Cosine { min: 0.01 })
+    .warmup(2)
     .l2(1e-4)
     .gradient_clipping(5.0)
+    .cutout(8)
+    .mixup(0.2)
     .loss(Loss::CrossEntropy);
 ```
+
+`train::train` calls your closure after every epoch; return `ControlFlow::Break(())` from it
+to stop early.
 
 ## Training logs
 

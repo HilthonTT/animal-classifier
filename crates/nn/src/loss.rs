@@ -11,7 +11,59 @@ pub enum Loss {
     MeanSquaredError,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Target {
+    pub class: usize,
+    pub other: usize,
+    pub weight: f32,
+}
+
+impl Target {
+    pub fn class(class: usize) -> Self {
+        Self {
+            class,
+            other: class,
+            weight: 1.0,
+        }
+    }
+
+    pub fn mix(class: usize, other: usize, weight: f32) -> Self {
+        Self {
+            class,
+            other,
+            weight,
+        }
+    }
+
+    pub fn dominant(&self) -> usize {
+        if self.weight >= 0.5 {
+            self.class
+        } else {
+            self.other
+        }
+    }
+}
+
+impl From<usize> for Target {
+    fn from(class: usize) -> Self {
+        Self::class(class)
+    }
+}
+
 impl Loss {
+    pub fn evaluate_target(self, logits: &[f32], target: Target) -> (f32, Vec<f32>) {
+        let (loss, mut grad) = self.evaluate(logits, target.class);
+        if target.class == target.other || target.weight == 1.0 {
+            return (loss, grad);
+        }
+        let (other_loss, other_grad) = self.evaluate(logits, target.other);
+        let w = target.weight;
+        for (g, o) in grad.iter_mut().zip(other_grad) {
+            *g = w * *g + (1.0 - w) * o;
+        }
+        (w * loss + (1.0 - w) * other_loss, grad)
+    }
+
     /// The loss for one sample and its gradient with respect to the logits.
     pub fn evaluate(self, logits: &[f32], target: usize) -> (f32, Vec<f32>) {
         match self {
@@ -139,6 +191,25 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn mixed_targets_blend_both_losses() {
+        let logits = [0.3f32, -1.2, 2.0];
+        for loss in [Loss::CrossEntropy, Loss::MeanSquaredError] {
+            let (a, ga) = loss.evaluate(&logits, 0);
+            let (b, gb) = loss.evaluate(&logits, 2);
+            let (mixed, gm) = loss.evaluate_target(&logits, Target::mix(0, 2, 0.25));
+            assert!((mixed - (0.25 * a + 0.75 * b)).abs() < 1e-6);
+            for i in 0..3 {
+                assert!((gm[i] - (0.25 * ga[i] + 0.75 * gb[i])).abs() < 1e-6);
+            }
+            assert_eq!(
+                loss.evaluate_target(&logits, Target::class(1)),
+                loss.evaluate(&logits, 1)
+            );
+        }
+        assert_eq!(Target::mix(0, 2, 0.25).dominant(), 2);
     }
 
     #[test]

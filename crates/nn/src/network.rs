@@ -1,7 +1,9 @@
 use crate::error::{Error, Result};
-use crate::layers::Layer;
-use crate::loss::{Loss, argmax, softmax};
+use crate::layers::{BatchContext, Layer};
+use crate::loss::{Loss, Target, argmax, softmax};
+use crate::math::axpy;
 use crate::optimizer::Optimizer;
+use crate::reduce::NoReduce;
 use crate::rng::Rng;
 
 pub struct Network {
@@ -36,6 +38,31 @@ impl Network {
                 )));
             }
         }
+        if let Some(span) = layer.shortcut() {
+            let index = self.layers.len();
+            let source = index
+                .checked_sub(span)
+                .filter(|_| span > 0)
+                .map(|start| &self.layers[start]);
+            match source {
+                Some(start) if start.input_len() == layer.input_len() => {}
+                Some(start) => {
+                    return Err(Error::format(format!(
+                        "layer `{}` adds {} values to the {} inputs of `{}`",
+                        layer.describe(),
+                        layer.input_len(),
+                        start.input_len(),
+                        start.describe()
+                    )));
+                }
+                None => {
+                    return Err(Error::format(format!(
+                        "layer `{}` reaches back {span} layers but only {index} precede it",
+                        layer.describe()
+                    )));
+                }
+            }
+        }
         self.layers.push(layer);
         Ok(())
     }
@@ -68,13 +95,21 @@ impl Network {
 
     pub fn forward(&self, input: &[f32]) -> Vec<f32> {
         assert_eq!(input.len(), self.input_len(), "wrong input size");
-        let mut current = input.to_vec();
-        for layer in &self.layers {
-            let mut next = vec![0.0; layer.output_len()];
-            layer.forward(&current, &mut next);
-            current = next;
+        self.activations(input).pop().expect("input pushed first")
+    }
+
+    fn activations(&self, input: &[f32]) -> Vec<Vec<f32>> {
+        let mut activations = Vec::with_capacity(self.layers.len() + 1);
+        activations.push(input.to_vec());
+        for (i, layer) in self.layers.iter().enumerate() {
+            let mut output = vec![0.0; layer.output_len()];
+            layer.forward(&activations[i], &mut output);
+            if let Some(span) = layer.shortcut() {
+                axpy(1.0, &activations[i - span], &mut output);
+            }
+            activations.push(output);
         }
-        current
+        activations
     }
 
     /// Class probabilities for one sample.
@@ -90,6 +125,16 @@ impl Network {
             .collect()
     }
 
+    pub fn buffers(&self) -> Vec<Vec<f32>> {
+        self.layers.iter().map(|l| l.buffers().to_vec()).collect()
+    }
+
+    pub fn set_buffers(&mut self, buffers: &[Vec<f32>]) {
+        for (layer, values) in self.layers.iter_mut().zip(buffers) {
+            layer.buffers_mut().copy_from_slice(values);
+        }
+    }
+
     /// Training-mode forward + backward pass for one labelled sample. Parameter gradients
     /// are **added** to `grads`. `rng` drives stochastic layers such as dropout.
     /// Returns the loss and the predicted class.
@@ -101,59 +146,125 @@ impl Network {
         rng: &mut Rng,
         grads: &mut [Vec<f32>],
     ) -> (f32, usize) {
-        // Keep every intermediate activation (and layer cache): the backward pass needs them.
-        let mut activations: Vec<Vec<f32>> = Vec::with_capacity(self.layers.len() + 1);
-        let mut caches: Vec<Vec<f32>> = Vec::with_capacity(self.layers.len());
-        activations.push(input.to_vec());
-        for layer in &self.layers {
-            let mut output = vec![0.0; layer.output_len()];
-            let mut cache = Vec::new();
-            let input = activations.last().expect("input pushed above");
-            layer.forward_train(input, &mut output, rng, &mut cache);
-            activations.push(output);
-            caches.push(cache);
+        let mut buffers = self.buffers();
+        let mut ctx = BatchContext {
+            rng,
+            reducer: &NoReduce,
+        };
+        let (loss, predicted) = self.accumulate_batch(
+            &[input.to_vec()],
+            &[Target::class(target)],
+            loss,
+            &mut ctx,
+            grads,
+            &mut buffers,
+        );
+        (loss, predicted[0])
+    }
+
+    pub fn accumulate_batch(
+        &self,
+        inputs: &[Vec<f32>],
+        targets: &[Target],
+        loss: Loss,
+        ctx: &mut BatchContext,
+        grads: &mut [Vec<f32>],
+        buffers: &mut [Vec<f32>],
+    ) -> (f32, Vec<usize>) {
+        assert_eq!(inputs.len(), targets.len(), "one target per input");
+        let n = inputs.len();
+        let mut activations: Vec<Vec<Vec<f32>>> = Vec::with_capacity(self.layers.len() + 1);
+        let mut caches: Vec<Vec<Vec<f32>>> = Vec::with_capacity(self.layers.len());
+        activations.push(inputs.to_vec());
+        for (i, layer) in self.layers.iter().enumerate() {
+            let mut outputs = vec![vec![0.0; layer.output_len()]; n];
+            let mut layer_caches = vec![Vec::new(); n];
+            layer.forward_batch(
+                &activations[i],
+                &mut outputs,
+                &mut layer_caches,
+                &mut buffers[i],
+                ctx,
+            );
+            if let Some(span) = layer.shortcut() {
+                for (output, source) in outputs.iter_mut().zip(&activations[i - span]) {
+                    axpy(1.0, source, output);
+                }
+            }
+            activations.push(outputs);
+            caches.push(layer_caches);
         }
 
-        let logits = activations.last().expect("input pushed above");
-        let predicted = argmax(logits);
-        let (loss, grad) = loss.evaluate(logits, target);
-        self.backpropagate(&activations, &caches, grad, grads);
-        (loss, predicted)
+        let logits = activations.last().expect("input pushed first");
+        let mut total = 0.0;
+        let mut predicted = Vec::with_capacity(n);
+        let mut grad = Vec::with_capacity(n);
+        for (logits, &target) in logits.iter().zip(targets) {
+            let (l, g) = loss.evaluate_target(logits, target);
+            total += l;
+            predicted.push(argmax(logits));
+            grad.push(g);
+        }
+
+        let mut pending: Vec<Option<Vec<Vec<f32>>>> = vec![None; self.layers.len()];
+        for (i, layer) in self.layers.iter().enumerate().rev() {
+            let mut grad_inputs = vec![vec![0.0; layer.input_len()]; n];
+            layer.backward_batch(
+                &activations[i],
+                &activations[i + 1],
+                &caches[i],
+                &grad,
+                &mut grad_inputs,
+                &mut grads[i],
+                ctx,
+            );
+            if let Some(span) = layer.shortcut() {
+                match &mut pending[i - span] {
+                    Some(sum) => {
+                        for (s, g) in sum.iter_mut().zip(&grad) {
+                            axpy(1.0, g, s);
+                        }
+                    }
+                    slot => *slot = Some(grad),
+                }
+            }
+            grad = grad_inputs;
+            if let Some(extra) = pending[i].take() {
+                for (g, e) in grad.iter_mut().zip(&extra) {
+                    axpy(1.0, e, g);
+                }
+            }
+        }
+        (total, predicted)
     }
 
     pub fn input_gradient(&self, input: &[f32], grad_output: &[f32]) -> Vec<f32> {
         assert_eq!(input.len(), self.input_len(), "wrong input size");
         assert_eq!(grad_output.len(), self.output_len(), "wrong gradient size");
-        let mut activations = Vec::with_capacity(self.layers.len() + 1);
-        activations.push(input.to_vec());
-        for layer in &self.layers {
-            let mut output = vec![0.0; layer.output_len()];
-            layer.forward(activations.last().expect("input pushed above"), &mut output);
-            activations.push(output);
-        }
-        let caches = vec![Vec::new(); self.layers.len()];
+        let activations = self.activations(input);
         let mut grads = self.zero_grads();
-        self.backpropagate(&activations, &caches, grad_output.to_vec(), &mut grads)
-    }
-
-    fn backpropagate(
-        &self,
-        activations: &[Vec<f32>],
-        caches: &[Vec<f32>],
-        mut grad: Vec<f32>,
-        grads: &mut [Vec<f32>],
-    ) -> Vec<f32> {
+        let mut grad = grad_output.to_vec();
+        let mut pending: Vec<Option<Vec<f32>>> = vec![None; self.layers.len()];
         for (i, layer) in self.layers.iter().enumerate().rev() {
             let mut grad_input = vec![0.0; layer.input_len()];
             layer.backward(
                 &activations[i],
                 &activations[i + 1],
-                &caches[i],
+                &[],
                 &grad,
                 &mut grad_input,
                 &mut grads[i],
             );
+            if let Some(span) = layer.shortcut() {
+                match &mut pending[i - span] {
+                    Some(sum) => axpy(1.0, &grad, sum),
+                    slot => *slot = Some(grad),
+                }
+            }
             grad = grad_input;
+            if let Some(extra) = pending[i].take() {
+                axpy(1.0, &extra, &mut grad);
+            }
         }
         grad
     }
@@ -171,6 +282,15 @@ impl Network {
 
     /// Lets `optimizer` update every layer's parameters from `grads`.
     pub fn apply_gradients(&mut self, optimizer: &mut dyn Optimizer, grads: &[Vec<f32>]) {
+        let decay = optimizer.decoupled_weight_decay() * optimizer.learning_rate();
+        if decay > 0.0 {
+            for layer in &mut self.layers {
+                let n = layer.weight_len();
+                layer.params_mut()[..n]
+                    .iter_mut()
+                    .for_each(|w| *w *= 1.0 - decay);
+            }
+        }
         let mut params: Vec<&mut [f32]> = self.layers.iter_mut().map(|l| l.params_mut()).collect();
         optimizer.step(&mut params, grads);
     }

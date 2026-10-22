@@ -14,6 +14,9 @@ impl Options {
         "resume",
         "tta",
         "auto-contrast",
+        "batch-norm",
+        "residual",
+        "global-pool",
         "help",
     ];
 

@@ -34,6 +34,32 @@ impl Rng {
         (-2.0 * u1.ln()).sqrt() * (2.0 * std::f32::consts::PI * u2).cos()
     }
 
+    pub fn gamma(&mut self, shape: f32) -> f32 {
+        if shape < 1.0 {
+            let u = 1.0 - self.next_f32();
+            return self.gamma(shape + 1.0) * u.powf(1.0 / shape);
+        }
+        let d = shape - 1.0 / 3.0;
+        let c = 1.0 / (9.0 * d).sqrt();
+        loop {
+            let x = self.normal();
+            let v = (1.0 + c * x).powi(3);
+            if v <= 0.0 {
+                continue;
+            }
+            let u = 1.0 - self.next_f32();
+            if u.ln() < 0.5 * x * x + d * (1.0 - v + v.ln()) {
+                return d * v;
+            }
+        }
+    }
+
+    pub fn beta(&mut self, a: f32, b: f32) -> f32 {
+        let x = self.gamma(a);
+        let y = self.gamma(b);
+        if x + y > 0.0 { x / (x + y) } else { 0.5 }
+    }
+
     /// Fisher–Yates shuffle.
     pub fn shuffle<T>(&mut self, items: &mut [T]) {
         for i in (1..items.len()).rev() {
@@ -74,6 +100,21 @@ mod tests {
         let var = samples.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / n as f32;
         assert!(mean.abs() < 0.02, "mean {mean}");
         assert!((var - 1.0).abs() < 0.05, "variance {var}");
+    }
+
+    #[test]
+    fn beta_has_the_expected_mean_and_range() {
+        let mut rng = Rng::new(5);
+        for (a, b) in [(0.2, 0.2), (1.0, 1.0), (2.0, 5.0)] {
+            let n = 20_000;
+            let samples: Vec<f32> = (0..n).map(|_| rng.beta(a, b)).collect();
+            assert!(samples.iter().all(|x| (0.0..=1.0).contains(x)));
+            let mean = samples.iter().sum::<f32>() / n as f32;
+            assert!(
+                (mean - a / (a + b)).abs() < 0.02,
+                "Beta({a}, {b}) mean {mean}"
+            );
+        }
     }
 
     #[test]

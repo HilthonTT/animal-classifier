@@ -33,9 +33,16 @@ pub fn run(opts: &Options) -> AppResult {
         let mut ranked: Vec<(usize, f32)> = probabilities.into_iter().enumerate().collect();
         ranked.sort_by(|a, b| b.1.total_cmp(&a.1));
         println!("{path} ({}x{})", image.width, image.height);
-        for &(class, p) in &ranked {
+        let shown = &ranked[..ranked.len().min(10)];
+        let width = shown
+            .iter()
+            .map(|&(class, _)| model.labels()[class].chars().count())
+            .max()
+            .unwrap_or(0)
+            .max(8);
+        for &(class, p) in shown {
             println!(
-                "  {:<8} {} {:5.1}%",
+                "  {:<width$} {} {:5.1}%",
                 model.labels()[class],
                 bar(p, 30),
                 p * 100.0

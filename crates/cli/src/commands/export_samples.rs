@@ -1,15 +1,16 @@
 use std::fs;
 
 use pawnet::data::IMAGE_SIZE;
-use pawnet::data::cifar::{self, Split};
+use pawnet::data::cifar::{DatasetKind, Split};
 use pawnet::image::RgbImage;
 
-use super::{AppResult, DEFAULT_DATA_DIR};
+use super::{AppResult, dataset};
 use crate::args::Options;
 
 pub fn run(opts: &Options) -> AppResult {
-    opts.allow(&["data", "out", "count", "scale"])?;
-    let test_set = cifar::load_animals(&opts.path("data", DEFAULT_DATA_DIR), Split::Test)?;
+    opts.allow(&["data", "dataset", "out", "count", "scale"])?;
+    let (kind, data_dir) = dataset(opts, DatasetKind::Animals)?;
+    let test_set = kind.load(&data_dir, Split::Test)?;
     let out_dir = opts.path("out", "samples");
     let count: usize = opts.get("count", 12)?;
     let scale: usize = opts.get("scale", 4)?;

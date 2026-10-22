@@ -29,6 +29,8 @@ for seed in 1 2 3; do
 done
 ```
 
-The same seed and the same `--threads` value reproduce the same model on the same
-platform. `--val 0` reproduces how these models were trained: the best epoch was chosen by
+These models were trained with version 0.2.0. Later versions process each layer over a
+whole batch and multiply matrices in a different order, so the commands now give models of
+the same quality but not bit-identical ones. Within one version, the same seed and the same
+`--threads` value reproduce the same model on the same platform. `--val 0` reproduces how these models were trained: the best epoch was chosen by
 test accuracy, which makes their figures slightly optimistic.

@@ -7,6 +7,23 @@ All notable changes to this project are documented here. The format follows
 ## [Unreleased]
 
 ### Added
+- **Batch normalisation:** a `BatchNorm` layer (`train --batch-norm`). Its statistics cover the
+  whole mini-batch even though the batch is split across threads: the threads add up their
+  partial sums at a barrier, in a fixed order, so training stays reproducible.
+- **Skip connections:** a `Residual` layer that adds the input of an earlier layer
+  (`train --residual` adds a two-convolution residual block to every stage).
+- **Pooling:** `AvgPool2d` (`--pool avg`) and `GlobalAvgPool` (`--global-pool`, which replaces
+  the 128-unit hidden layer).
+- **Optimizers and schedules:** AdamW (`--optimizer adamw --weight-decay W`), RMSprop
+  (`--optimizer rmsprop`), cosine annealing (`--schedule cosine[:min]`) and linear warm-up
+  (`--warmup N`).
+- **Early stopping:** `train --patience N` stops after N epochs without a new best model.
+- **Augmentation:** colour jitter (`--jitter`), cutout (`--cutout`) and mixup (`--mixup`).
+- **More datasets:** `--dataset cifar10` trains on all ten CIFAR-10 classes and
+  `--dataset cifar100` on CIFAR-100 (`scripts/download_data.sh cifar100`). `evaluate` picks the
+  dataset from the model's classes.
+- A batch-level training API: `Network::accumulate_batch`, `Layer::forward_batch` and
+  `Layer::backward_batch`, `Reducer`/`SharedReduce`, and `Target` for mixed labels.
 - **PNG support:** a from-scratch PNG decoder with its own DEFLATE decompressor. Every colour
   type and bit depth, interlaced images, and CRC and Adler-32 checks; transparency becomes white.
 - **Heat maps:** `predict --explain OUT` saves the pixels behind each prediction (SmoothGrad on
@@ -20,6 +37,15 @@ All notable changes to this project are documented here. The format follows
 - `docs/usage.md` and a documentation index (`docs/README.md`).
 
 ### Changed
+- **Faster convolutions:** `Conv2d` now uses im2col and blocked matrix multiplication, and max
+  pooling has a 2×2 fast path. A training step is about 4× faster and inference about 5× faster.
+- Model files are now format version 3, which stores non-trainable state (batch-norm running
+  statistics). Version 1 and 2 files still load.
+- `LrSchedule::rate` takes the total number of epochs, and the `train::train` callback returns
+  `ControlFlow` so it can stop training.
+- `Augment` gained colour and cutout fields and is no longer `Eq`.
+- Training now runs each layer over a thread's whole sub-batch, so the same seed no longer
+  reproduces models trained with 0.2.0 bit for bit.
 - Renamed the project to **Pawnet**: the crates are now `pawnet-nn`, `pawnet` and `pawnet-cli`,
   and the binary is `pawnet`. The models are now `models/pawnet.bin` and
   `models/ensemble/pawnet-seed<n>.bin`, and model files start with `PAWNET`; files written

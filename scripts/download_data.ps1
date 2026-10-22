@@ -1,17 +1,30 @@
-# Downloads the binary version of CIFAR-10 (~163 MB) into data\cifar-10-batches-bin.
-# CIFAR-10: Alex Krizhevsky, "Learning Multiple Layers of Features from Tiny Images", 2009.
+# Downloads the binary version of CIFAR-10 (~163 MB) into data\cifar-10-batches-bin,
+# or with `cifar100` the binary version of CIFAR-100 (~161 MB) into data\cifar-100-binary.
+# Alex Krizhevsky, "Learning Multiple Layers of Features from Tiny Images", 2009.
+param([ValidateSet("cifar10", "cifar100")][string]$Dataset = "cifar10")
 $ErrorActionPreference = "Stop"
 
-$Url = "https://www.cs.toronto.edu/~kriz/cifar-10-binary.tar.gz"
-$Md5 = "c32a1d4ab5d03f1284b67883e8d87530"
+if ($Dataset -eq "cifar100") {
+    $Name = "CIFAR-100"
+    $Url = "https://www.cs.toronto.edu/~kriz/cifar-100-binary.tar.gz"
+    $Md5 = "03b5dce01913d631647c71ecec9e9cb8"
+    $Folder = "cifar-100-binary"
+    $Marker = "test.bin"
+} else {
+    $Name = "CIFAR-10"
+    $Url = "https://www.cs.toronto.edu/~kriz/cifar-10-binary.tar.gz"
+    $Md5 = "c32a1d4ab5d03f1284b67883e8d87530"
+    $Folder = "cifar-10-batches-bin"
+    $Marker = "test_batch.bin"
+}
 
 $Root = Split-Path -Parent $PSScriptRoot
 $DataDir = Join-Path $Root "data"
-$Target = Join-Path $DataDir "cifar-10-batches-bin"
-$Archive = Join-Path $DataDir "cifar-10-binary.tar.gz"
+$Target = Join-Path $DataDir $Folder
+$Archive = Join-Path $DataDir ($Url.Split("/")[-1])
 
-if (Test-Path (Join-Path $Target "test_batch.bin")) {
-    Write-Host "CIFAR-10 is already in $Target"
+if (Test-Path (Join-Path $Target $Marker)) {
+    Write-Host "$Name is already in $Target"
     exit 0
 }
 

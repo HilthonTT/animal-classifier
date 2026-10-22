@@ -1,18 +1,37 @@
 #!/usr/bin/env bash
-# Downloads the binary version of CIFAR-10 (~163 MB) into data/cifar-10-batches-bin.
-# CIFAR-10: Alex Krizhevsky, "Learning Multiple Layers of Features from Tiny Images", 2009.
+# Downloads the binary version of CIFAR-10 (~163 MB) into data/cifar-10-batches-bin,
+# or with `cifar100` the binary version of CIFAR-100 (~161 MB) into data/cifar-100-binary.
+# Alex Krizhevsky, "Learning Multiple Layers of Features from Tiny Images", 2009.
 set -euo pipefail
 
-URL="https://www.cs.toronto.edu/~kriz/cifar-10-binary.tar.gz"
-MD5="c32a1d4ab5d03f1284b67883e8d87530"
+case "${1:-cifar10}" in
+    cifar10)
+        NAME="CIFAR-10"
+        URL="https://www.cs.toronto.edu/~kriz/cifar-10-binary.tar.gz"
+        MD5="c32a1d4ab5d03f1284b67883e8d87530"
+        FOLDER="cifar-10-batches-bin"
+        MARKER="test_batch.bin"
+        ;;
+    cifar100)
+        NAME="CIFAR-100"
+        URL="https://www.cs.toronto.edu/~kriz/cifar-100-binary.tar.gz"
+        MD5="03b5dce01913d631647c71ecec9e9cb8"
+        FOLDER="cifar-100-binary"
+        MARKER="test.bin"
+        ;;
+    *)
+        echo "usage: $0 [cifar10|cifar100]" >&2
+        exit 1
+        ;;
+esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DATA_DIR="$ROOT/data"
-TARGET="$DATA_DIR/cifar-10-batches-bin"
-ARCHIVE="$DATA_DIR/cifar-10-binary.tar.gz"
+TARGET="$DATA_DIR/$FOLDER"
+ARCHIVE="$DATA_DIR/$(basename "$URL")"
 
-if [[ -f "$TARGET/test_batch.bin" ]]; then
-    echo "CIFAR-10 is already in $TARGET"
+if [[ -f "$TARGET/$MARKER" ]]; then
+    echo "$NAME is already in $TARGET"
     exit 0
 fi
 

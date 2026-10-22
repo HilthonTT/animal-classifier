@@ -1,13 +1,14 @@
-use pawnet::data::cifar::{self, Split};
+use pawnet::data::cifar::{DatasetKind, Split};
 use pawnet::train;
 
-use super::{AppResult, DEFAULT_DATA_DIR, load_predictor};
+use super::{AppResult, dataset, load_predictor};
 use crate::args::Options;
 
 pub fn run(opts: &Options) -> AppResult {
-    opts.allow(&["data", "model", "threads", "tta"])?;
+    opts.allow(&["data", "dataset", "model", "threads", "tta"])?;
     let model = load_predictor(opts)?;
-    let test_set = cifar::load_animals(&opts.path("data", DEFAULT_DATA_DIR), Split::Test)?;
+    let (kind, data_dir) = dataset(opts, DatasetKind::detect(model.labels()))?;
+    let test_set = kind.load(&data_dir, Split::Test)?;
     if model.labels() != test_set.class_names.as_slice() {
         return Err(format!(
             "the model's classes ({}) differ from the dataset's ({})",

@@ -1,11 +1,41 @@
 use super::{CHANNELS, IMAGE_LEN, IMAGE_SIZE};
 use crate::nn::Rng;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Cutout {
+    pub x: i32,
+    pub y: i32,
+    pub size: i32,
+}
+
+impl Cutout {
+    pub fn covers(&self, x: i32, y: i32) -> bool {
+        let (x0, y0) = (self.x - self.size / 2, self.y - self.size / 2);
+        (x0..x0 + self.size).contains(&x) && (y0..y0 + self.size).contains(&y)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Augment {
     pub flip: bool,
     pub dx: i32,
     pub dy: i32,
+    pub brightness: f32,
+    pub contrast: f32,
+    pub saturation: f32,
+    pub cutout: Option<Cutout>,
+}
+
+impl Default for Augment {
+    fn default() -> Self {
+        Self::NONE
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct AugmentOptions {
+    pub color_jitter: f32,
+    pub cutout: usize,
 }
 
 impl Augment {
@@ -13,14 +43,48 @@ impl Augment {
         flip: false,
         dx: 0,
         dy: 0,
+        brightness: 1.0,
+        contrast: 1.0,
+        saturation: 1.0,
+        cutout: None,
     };
 
     pub fn random(rng: &mut Rng) -> Self {
-        Self {
+        Self::random_with(rng, &AugmentOptions::default())
+    }
+
+    pub fn random_with(rng: &mut Rng, options: &AugmentOptions) -> Self {
+        let mut augment = Self {
             flip: rng.next_u64() & 1 == 1,
             dx: rng.below(5) as i32 - 2,
             dy: rng.below(5) as i32 - 2,
+            ..Self::NONE
+        };
+        let jitter = options.color_jitter;
+        if jitter > 0.0 {
+            let mut factor = || 1.0 + jitter * (2.0 * rng.next_f32() - 1.0);
+            augment.brightness = factor();
+            augment.contrast = factor();
+            augment.saturation = factor();
         }
+        if options.cutout > 0 {
+            augment.cutout = Some(Cutout {
+                x: rng.below(IMAGE_SIZE) as i32,
+                y: rng.below(IMAGE_SIZE) as i32,
+                size: options.cutout as i32,
+            });
+        }
+        augment
+    }
+
+    pub fn adjusts_colour(&self) -> bool {
+        self.brightness != 1.0 || self.contrast != 1.0 || self.saturation != 1.0
+    }
+
+    pub fn adjust_colour(&self, rgb: [f32; 3]) -> [f32; 3] {
+        let [r, g, b] = rgb.map(|v| (v * self.brightness - 0.5) * self.contrast + 0.5);
+        let grey = 0.299 * r + 0.587 * g + 0.114 * b;
+        [r, g, b].map(|v| (grey + self.saturation * (v - grey)).clamp(0.0, 1.0))
     }
 }
 
@@ -90,6 +154,58 @@ mod tests {
         let moved = translate(&img, 2, 1);
         assert_eq!(moved[6 * IMAGE_SIZE + 7], 200);
         assert_eq!(moved[5 * IMAGE_SIZE + 5], 0);
+    }
+
+    #[test]
+    fn random_augment_respects_its_options() {
+        let mut rng = Rng::new(2);
+        let plain = Augment::random(&mut rng);
+        assert!(!plain.adjusts_colour() && plain.cutout.is_none());
+        let options = AugmentOptions {
+            color_jitter: 0.4,
+            cutout: 8,
+        };
+        for _ in 0..100 {
+            let a = Augment::random_with(&mut rng, &options);
+            for f in [a.brightness, a.contrast, a.saturation] {
+                assert!((0.6..=1.4).contains(&f), "{f}");
+            }
+            assert_eq!(a.cutout.map(|c| c.size), Some(8));
+        }
+    }
+
+    #[test]
+    fn colour_adjustments_behave() {
+        let grey = Augment {
+            saturation: 0.0,
+            ..Augment::NONE
+        };
+        let [r, g, b] = grey.adjust_colour([1.0, 0.0, 0.0]);
+        assert!((r - g).abs() < 1e-6 && (g - b).abs() < 1e-6);
+        let bright = Augment {
+            brightness: 2.0,
+            ..Augment::NONE
+        };
+        let close = |a: [f32; 3], b: [f32; 3]| a.iter().zip(&b).all(|(x, y)| (x - y).abs() < 1e-6);
+        assert!(close(
+            bright.adjust_colour([0.25, 0.75, 0.5]),
+            [0.5, 1.0, 1.0]
+        ));
+        assert!(close(
+            Augment::NONE.adjust_colour([0.2, 0.4, 0.6]),
+            [0.2, 0.4, 0.6]
+        ));
+    }
+
+    #[test]
+    fn cutout_covers_a_square() {
+        let cut = Cutout {
+            x: 5,
+            y: 5,
+            size: 4,
+        };
+        assert!(cut.covers(3, 3) && cut.covers(6, 6));
+        assert!(!cut.covers(7, 5) && !cut.covers(5, 2));
     }
 
     #[test]

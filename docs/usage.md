@@ -28,6 +28,9 @@ dog.png (128x128)
 | `--auto-contrast` | stretch the colour range of dull photos |
 | `--explain OUT` | save a heat map of the pixels behind the answer (see below) |
 
+Models with more than ten classes, such as a CIFAR-100 model, list their ten most likely
+classes.
+
 ### See what the model looks at
 
 ```bash
@@ -73,6 +76,15 @@ cargo run --release -- train               # ~10 minutes on an 8-core CPU
 cargo run --release -- evaluate --tta      # accuracy, per-class precision/recall, confusion matrix
 ```
 
+To train on all ten CIFAR-10 classes or on CIFAR-100 instead of the six animals:
+
+```bash
+cargo run --release -- train --dataset cifar10 --model models/cifar10.bin
+./scripts/download_data.sh cifar100
+cargo run --release -- train --dataset cifar100 --model models/cifar100.bin
+cargo run --release -- evaluate --model models/cifar100.bin   # finds the right dataset itself
+```
+
 Every training option, recipes and reference results are in the [training guide](training.md).
 
 > For extra speed: `RUSTFLAGS="-C target-cpu=native" cargo run --release -- train`
@@ -81,7 +93,7 @@ Every training option, recipes and reference results are in the [training guide]
 
 | Command | Description |
 |---------|-------------|
-| `train` | Train a model; the best epoch (by test accuracy) is saved |
+| `train` | Train a model; the best epoch (by validation accuracy) is saved |
 | `evaluate` | Accuracy, per-class precision and recall, and a confusion matrix |
 | `predict <IMAGE>…` | Classify `.png`, `.ppm` or `.bmp` files |
 | `expand` | Write a 4× larger training set (flipped, shifted and rotated copies) |

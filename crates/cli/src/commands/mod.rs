@@ -10,14 +10,19 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use pawnet::data::IMAGE_LEN;
+use pawnet::data::cifar::DatasetKind;
 use pawnet::{Ensemble, Predictor};
 
 use crate::args::Options;
 
 pub type AppResult = Result<(), Box<dyn Error>>;
 
-pub const DEFAULT_DATA_DIR: &str = "data/cifar-10-batches-bin";
 pub const DEFAULT_MODEL_PATH: &str = "models/pawnet.bin";
+
+pub fn dataset(opts: &Options, default: DatasetKind) -> Result<(DatasetKind, PathBuf), String> {
+    let kind = opts.get("dataset", default)?;
+    Ok((kind, opts.path("data", kind.default_dir())))
+}
 
 pub fn load_predictor(opts: &Options) -> Result<Box<dyn Predictor>, Box<dyn Error>> {
     let spec = opts.string("model", DEFAULT_MODEL_PATH);

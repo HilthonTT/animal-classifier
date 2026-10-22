@@ -9,7 +9,7 @@ use crate::network::Network;
 const MAGIC: &[u8; 8] = b"PAWNET\0\0";
 const LEGACY_MAGIC: &[u8; 8] = b"ANIMLNN\0";
 /// Model file format version written by this crate.
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 /// Oldest version this crate can still read.
 const MIN_VERSION: u32 = 1;
 
@@ -34,6 +34,10 @@ impl Network {
             out.extend_from_slice(&(layer.params().len() as u32).to_le_bytes());
             for p in layer.params() {
                 out.extend_from_slice(&p.to_le_bytes());
+            }
+            out.extend_from_slice(&(layer.buffers().len() as u32).to_le_bytes());
+            for b in layer.buffers() {
+                out.extend_from_slice(&b.to_le_bytes());
             }
         }
         out
@@ -79,8 +83,17 @@ impl Network {
                 )));
             }
             let data = r.take(param_count * 4)?;
-            for (p, chunk) in layer.params_mut().iter_mut().zip(data.chunks_exact(4)) {
-                *p = f32::from_le_bytes(chunk.try_into().expect("chunk of 4 bytes"));
+            read_floats(data, layer.params_mut());
+            if version >= 3 {
+                let buffer_count = r.u32()? as usize;
+                if buffer_count != layer.buffers().len() {
+                    return Err(Error::format(format!(
+                        "layer `{}` should have {} buffers, file has {buffer_count}",
+                        layer.describe(),
+                        layer.buffers().len()
+                    )));
+                }
+                read_floats(r.take(buffer_count * 4)?, layer.buffers_mut());
             }
             net.try_push(layer)?;
         }
@@ -122,6 +135,12 @@ impl Network {
     }
 }
 
+fn read_floats(data: &[u8], out: &mut [f32]) {
+    for (v, chunk) in out.iter_mut().zip(data.chunks_exact(4)) {
+        *v = f32::from_le_bytes(chunk.try_into().expect("chunk of 4 bytes"));
+    }
+}
+
 struct Reader<'a> {
     bytes: &'a [u8],
     pos: usize,
@@ -153,7 +172,10 @@ impl<'a> Reader<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layers::{Activation, ActivationFn, Conv2d, Dense, Dropout, MaxPool2d};
+    use crate::layers::{
+        Activation, ActivationFn, AvgPool2d, BatchNorm, Conv2d, Dense, Dropout, GlobalAvgPool,
+        MaxPool2d, Residual,
+    };
     use crate::rng::Rng;
 
     fn tiny_net() -> Network {
@@ -176,6 +198,36 @@ mod tests {
         assert_eq!(restored.to_bytes(), net.to_bytes());
         let input: Vec<f32> = (0..16).map(|i| i as f32 / 16.0).collect();
         assert_eq!(restored.forward(&input), net.forward(&input));
+    }
+
+    #[test]
+    fn new_layers_and_buffers_round_trip() {
+        let mut rng = Rng::new(6);
+        let mut net = Network::new(vec!["a".into(), "b".into()]);
+        net.push(Conv2d::new(1, 4, 4, 2, 3, 1, &mut rng))
+            .push(BatchNorm::new(2, 16))
+            .push(Activation::relu(32))
+            .push(Conv2d::new(2, 4, 4, 2, 3, 1, &mut rng))
+            .push(Residual::new(32, 3))
+            .push(AvgPool2d::new(2, 4, 4, 2))
+            .push(GlobalAvgPool::new(2, 2, 2))
+            .push(Dense::new(2, 2, &mut rng));
+        net.layers_mut()[1]
+            .buffers_mut()
+            .copy_from_slice(&[0.5, -0.5, 2.0, 3.0]);
+        let restored = Network::from_bytes(&net.to_bytes()).unwrap();
+        assert_eq!(restored.layers()[1].buffers(), &[0.5, -0.5, 2.0, 3.0]);
+        assert_eq!(restored.to_bytes(), net.to_bytes());
+        let input: Vec<f32> = (0..16).map(|i| i as f32 / 8.0 - 1.0).collect();
+        assert_eq!(restored.forward(&input), net.forward(&input));
+    }
+
+    #[test]
+    fn rejects_a_shortcut_that_reaches_too_far() {
+        let mut net = Network::new(vec!["a".into()]);
+        net.push(Dense::new(1, 1, &mut Rng::new(1)));
+        assert!(net.try_push(Box::new(Residual::new(1, 2))).is_err());
+        assert!(net.try_push(Box::new(Residual::new(1, 1))).is_ok());
     }
 
     #[test]

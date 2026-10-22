@@ -20,7 +20,10 @@ COMMANDS:
     info              Show the network architecture
 
 COMMON OPTIONS:
-    --data <DIR>      CIFAR-10 binary folder   [default: data/cifar-10-batches-bin]
+    --dataset <NAME>  animals | cifar10 | cifar100 [default: animals; evaluate
+                      picks it from the model's classes]
+    --data <DIR>      Dataset folder           [default: data/cifar-10-batches-bin,
+                      or data/cifar-100-binary for cifar100]
     --model <PATHS>   Model file, folder of models, or comma-separated list. Several
                       models form an ensemble that averages their predictions.
                       [default: models/pawnet.bin]
@@ -31,8 +34,10 @@ TRAIN OPTIONS:
     --batch-size <N>        [default: 64]
     --lr <RATE>             Initial learning rate               [default: 0.001]
     --schedule <SPEC>       constant | exp:<decay> | step:<factor>:<every> | time:<decay>
-                                                                [default: exp:0.9]
-    --optimizer <NAME>      adam | sgd                          [default: adam]
+                            | cosine[:<min factor>]             [default: exp:0.9]
+    --warmup <EPOCHS>       Ramp the learning rate up linearly  [default: 0]
+    --optimizer <NAME>      adam | adamw | sgd | rmsprop        [default: adam]
+    --weight-decay <W>      Decoupled weight decay for adamw    [default: 0.01]
     --loss <NAME>           cross-entropy | mse                 [default: cross-entropy]
     --l2 <LAMBDA>           L2 regularisation (weight decay)    [default: 0]
     --clip <NORM>           Gradient clipping by global norm    [default: off]
@@ -40,13 +45,21 @@ TRAIN OPTIONS:
     --init <NAME>           he | xavier | uniform | zero        [default: he]
     --dropout <RATE>        Dropout before the output layer     [default: 0.25]
     --width <N>             Filters in the first conv layer     [default: 16]
+    --batch-norm            Batch normalisation after every conv and hidden layer
+    --residual              Add a residual block (two convs + shortcut) to each stage
+    --pool <NAME>           max | avg                           [default: max]
+    --global-pool           Global average pooling instead of the 128-unit hidden layer
     --seed <N>              Random seed for reproducible runs
     --limit <N>             Only use the first N training images (quick experiments)
-    --no-augment            Disable random flips / shifts during training
+    --no-augment            Disable all random augmentation during training
+    --jitter <STRENGTH>     Random brightness/contrast/saturation, e.g. 0.2 [default: 0]
+    --cutout <PIXELS>       Blank a random square of this size  [default: 0]
+    --mixup <ALPHA>         Blend image pairs and their labels, e.g. 0.2 [default: 0]
     --resume                Continue training the model at --model
     --val <FRACTION>        Hold out this share of the training images to choose
                             the best epoch (0 = choose by test accuracy) [default: 0.1]
     --log <FILE>            Write per-epoch loss and accuracy as CSV
+    --patience <N>          Stop after N epochs without a new best model [default: off]
 
 EVALUATE / PREDICT OPTIONS:
     --tta                   Test-time augmentation: also classify the mirror image
@@ -57,7 +70,7 @@ EVALUATE / PREDICT OPTIONS:
                             receives <image>-heatmap.ppm files for several
 
 EXPAND OPTIONS:
-    --out <DIR>             [default: data/cifar-10-expanded]
+    --out <DIR>             [default: data/cifar-10-expanded or data/cifar-100-expanded]
     --shift <PIXELS>        Shifted copy (0 = none)             [default: 2]
     --rotate <DEGREES>      Rotated copy (0 = none)             [default: 12]
     --no-flip               No mirrored copy
@@ -68,7 +81,7 @@ EXPORT-SAMPLES OPTIONS:
     --scale <N>             Upscale factor for easier viewing   [default: 4]
 
 Get the dataset first with scripts/download_data.sh (Linux/macOS) or
-scripts\\download_data.ps1 (Windows).
+scripts\\download_data.ps1 (Windows); add `cifar100` for CIFAR-100.
 ";
 
 fn main() -> ExitCode {

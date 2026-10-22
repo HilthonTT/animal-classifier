@@ -1,8 +1,13 @@
+use std::ops::ControlFlow;
+
 use pawnet::Ensemble;
 use pawnet::data::cifar::{self, Split};
 use pawnet::data::expand::{ExpandOptions, expand};
 use pawnet::data::{Dataset, IMAGE_LEN, IMAGE_SIZE};
-use pawnet::nn::{Activation, Adam, Dense, Dropout, Loss, LrSchedule, Network, Rng};
+use pawnet::model::{self, ModelOptions, Pool};
+use pawnet::nn::{
+    Activation, Adam, AdamW, Dense, Dropout, Loss, LrSchedule, Network, Optimizer, RmsProp, Rng,
+};
 use pawnet::train::{self, TrainConfig};
 
 fn colour_dataset(n: usize, rng: &mut Rng) -> Dataset {
@@ -33,23 +38,25 @@ fn small_net(classes: Vec<String>, dropout: f32, rng: &mut Rng) -> Network {
 }
 
 fn train_and_score(net: &mut Network, config: &TrainConfig, seed: u64) -> f32 {
+    let mut optimizer = Adam::new(config.learning_rate);
+    train_with(net, config, &mut optimizer, seed)
+}
+
+fn train_with(
+    net: &mut Network,
+    config: &TrainConfig,
+    optimizer: &mut dyn Optimizer,
+    seed: u64,
+) -> f32 {
     let mut rng = Rng::new(seed);
     let train_set = colour_dataset(300, &mut rng);
     let test_set = colour_dataset(90, &mut rng);
     let mut epochs_seen = 0;
-    let mut optimizer = Adam::new(config.learning_rate);
-    train::train(
-        net,
-        &train_set,
-        &mut optimizer,
-        config,
-        &mut rng,
-        |_, stats| {
-            epochs_seen = stats.epoch;
-            assert!(stats.loss.is_finite());
-            Ok(())
-        },
-    )
+    train::train(net, &train_set, optimizer, config, &mut rng, |_, stats| {
+        epochs_seen = stats.epoch;
+        assert!(stats.loss.is_finite());
+        Ok(ControlFlow::Continue(()))
+    })
     .unwrap();
     assert_eq!(epochs_seen, config.epochs);
     train::evaluate(net, &test_set, 2, false).accuracy()
@@ -87,6 +94,73 @@ fn learns_with_every_regularisation_option() {
         .learning_rate(3e-3);
     let accuracy = train_and_score(&mut net, &config, 2);
     assert!(accuracy > 0.9, "accuracy {accuracy}");
+}
+
+#[test]
+fn learns_with_every_augmentation_and_schedule_option() {
+    let mut rng = Rng::new(6);
+    let mut net = small_net(colour_dataset(1, &mut rng).class_names, 0.0, &mut rng);
+    let config = quiet()
+        .epochs(5)
+        .warmup(1)
+        .schedule(LrSchedule::Cosine { min: 0.1 })
+        .color_jitter(0.2)
+        .cutout(8)
+        .mixup(0.2)
+        .learning_rate(3e-3);
+    let mut optimizer = AdamW::new(config.learning_rate, 1e-2);
+    let accuracy = train_with(&mut net, &config, &mut optimizer, 6);
+    assert!(accuracy > 0.9, "accuracy {accuracy}");
+}
+
+#[test]
+fn trains_a_residual_batch_norm_network() {
+    let mut rng = Rng::new(7);
+    let options = ModelOptions {
+        width: 4,
+        batch_norm: true,
+        residual: true,
+        pool: Pool::Avg,
+        global_pool: true,
+        dropout: 0.0,
+        ..ModelOptions::default()
+    };
+    let mut net = model::pawnet_cnn(&colour_dataset(1, &mut rng).class_names, &options, &mut rng);
+    let before = net.buffers();
+    let config = quiet().epochs(2).learning_rate(3e-3);
+    let mut optimizer = RmsProp::new(config.learning_rate);
+    let accuracy = train_with(&mut net, &config, &mut optimizer, 7);
+    assert!(accuracy > 0.9, "accuracy {accuracy}");
+    assert_ne!(
+        net.buffers(),
+        before,
+        "running statistics should be updated"
+    );
+}
+
+#[test]
+fn training_stops_when_the_callback_breaks() {
+    let mut rng = Rng::new(8);
+    let data = colour_dataset(30, &mut rng);
+    let mut net = small_net(data.class_names.clone(), 0.0, &mut rng);
+    let mut epochs = 0;
+    train::train(
+        &mut net,
+        &data,
+        &mut Adam::new(1e-3),
+        &quiet().epochs(10),
+        &mut rng,
+        |_, stats| {
+            epochs = stats.epoch;
+            Ok(if stats.epoch == 2 {
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
+            })
+        },
+    )
+    .unwrap();
+    assert_eq!(epochs, 2);
 }
 
 #[test]

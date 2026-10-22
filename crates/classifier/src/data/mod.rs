@@ -2,7 +2,7 @@ pub mod augment;
 pub mod cifar;
 pub mod expand;
 
-pub use augment::Augment;
+pub use augment::{Augment, AugmentOptions, Cutout};
 
 use crate::nn::Rng;
 
@@ -107,19 +107,27 @@ impl Dataset {
 pub fn normalize_into(raw: &[u8], augment: Augment, out: &mut [f32]) {
     let n = IMAGE_SIZE as i32;
     let plane_len = IMAGE_SIZE * IMAGE_SIZE;
-    for c in 0..CHANNELS {
-        let plane = &raw[c * plane_len..(c + 1) * plane_len];
-        let (mean, std) = (CHANNEL_MEAN[c], CHANNEL_STD[c]);
-        for y in 0..n {
-            for x in 0..n {
-                let sx = if augment.flip { n - 1 - x } else { x } + augment.dx;
-                let sy = y + augment.dy;
-                let value = if (0..n).contains(&sx) && (0..n).contains(&sy) {
-                    (plane[(sy * n + sx) as usize] as f32 / 255.0 - mean) / std
-                } else {
-                    0.0
-                };
-                out[c * plane_len + (y * n + x) as usize] = value;
+    let colour = augment.adjusts_colour();
+    for y in 0..n {
+        for x in 0..n {
+            let dst = (y * n + x) as usize;
+            let sx = if augment.flip { n - 1 - x } else { x } + augment.dx;
+            let sy = y + augment.dy;
+            let inside = (0..n).contains(&sx) && (0..n).contains(&sy);
+            if !inside || augment.cutout.is_some_and(|c| c.covers(x, y)) {
+                for c in 0..CHANNELS {
+                    out[c * plane_len + dst] = 0.0;
+                }
+                continue;
+            }
+            let src = (sy * n + sx) as usize;
+            let mut rgb: [f32; CHANNELS] =
+                std::array::from_fn(|c| raw[c * plane_len + src] as f32 / 255.0);
+            if colour {
+                rgb = augment.adjust_colour(rgb);
+            }
+            for (c, v) in rgb.iter().enumerate() {
+                out[c * plane_len + dst] = (v - CHANNEL_MEAN[c]) / CHANNEL_STD[c];
             }
         }
     }
@@ -144,8 +152,7 @@ mod tests {
             &raw,
             Augment {
                 flip: true,
-                dx: 0,
-                dy: 0,
+                ..Augment::NONE
             },
             &mut out,
         );
@@ -161,14 +168,35 @@ mod tests {
         normalize_into(
             &raw,
             Augment {
-                flip: false,
                 dx: 2,
-                dy: 0,
+                ..Augment::NONE
             },
             &mut out,
         );
         assert_eq!(out[IMAGE_SIZE - 1], 0.0);
         assert!(out[0] > 0.0);
+    }
+
+    #[test]
+    fn cutout_blanks_a_square_to_the_mean() {
+        let raw = vec![255u8; IMAGE_LEN];
+        let mut out = vec![1.0; IMAGE_LEN];
+        let cutout = Some(Cutout {
+            x: 10,
+            y: 10,
+            size: 4,
+        });
+        normalize_into(
+            &raw,
+            Augment {
+                cutout,
+                ..Augment::NONE
+            },
+            &mut out,
+        );
+        let plane = IMAGE_SIZE * IMAGE_SIZE;
+        assert_eq!(out[plane + 9 * IMAGE_SIZE + 9], 0.0);
+        assert!(out[plane + 7 * IMAGE_SIZE + 9] > 0.0);
     }
 
     #[test]

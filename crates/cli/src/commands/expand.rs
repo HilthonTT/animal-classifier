@@ -1,16 +1,18 @@
 use std::fs;
 
-use pawnet::data::cifar::{self, Split};
+use pawnet::data::cifar::{DatasetKind, Split};
 use pawnet::data::expand::{ExpandOptions, expand};
 use pawnet::nn::Rng;
 
-use super::{AppResult, DEFAULT_DATA_DIR, time_seed};
+use super::{AppResult, dataset, time_seed};
 use crate::args::Options;
 
 pub fn run(opts: &Options) -> AppResult {
-    opts.allow(&["data", "out", "shift", "rotate", "no-flip", "seed"])?;
-    let data_dir = opts.path("data", DEFAULT_DATA_DIR);
-    let out_dir = opts.path("out", "data/cifar-10-expanded");
+    opts.allow(&[
+        "data", "dataset", "out", "shift", "rotate", "no-flip", "seed",
+    ])?;
+    let (kind, data_dir) = dataset(opts, DatasetKind::Animals)?;
+    let out_dir = opts.path("out", kind.default_expanded_dir());
     let same_dir = match (fs::canonicalize(&out_dir), fs::canonicalize(&data_dir)) {
         (Ok(out), Ok(data)) => out == data,
         _ => out_dir == data_dir,
@@ -26,7 +28,7 @@ pub fn run(opts: &Options) -> AppResult {
     };
     let mut rng = Rng::new(opts.get("seed", time_seed())?);
 
-    let train_set = cifar::load_animals(&data_dir, Split::Train)?;
+    let train_set = kind.load(&data_dir, Split::Train)?;
     println!(
         "Expanding {} images ×{} (flip: {}, shift: {}px, rotate: ±{}°)…",
         train_set.len(),
@@ -36,11 +38,16 @@ pub fn run(opts: &Options) -> AppResult {
         options.rotate
     );
     let expanded = expand(&train_set, &options, &mut rng);
-    let files = cifar::save_animals(&expanded, &out_dir)?;
+    let files = kind.save(&expanded, &out_dir)?;
 
-    let test_files = Split::Test.files(&data_dir)?;
-    for file in &test_files {
-        fs::copy(file, out_dir.join(file.file_name().expect("file path")))?;
+    for file in kind.files(&data_dir, Split::Test)? {
+        fs::copy(&file, out_dir.join(file.file_name().expect("file path")))?;
+    }
+    for name in kind.metadata_files() {
+        let file = data_dir.join(name);
+        if file.exists() {
+            fs::copy(&file, out_dir.join(name))?;
+        }
     }
     println!(
         "Wrote {} training images in {} files (+ test set) to {}",
@@ -48,8 +55,12 @@ pub fn run(opts: &Options) -> AppResult {
         files.len(),
         out_dir.display()
     );
+    let dataset_flag = match kind {
+        DatasetKind::Animals => String::new(),
+        other => format!(" --dataset {other}"),
+    };
     println!(
-        "Train on it with: pawnet train --data {}",
+        "Train on it with: pawnet train{dataset_flag} --data {}",
         out_dir.display()
     );
     Ok(())
