@@ -38,7 +38,7 @@ pub fn load_predictor(opts: &Options) -> Result<Box<dyn Predictor>, Box<dyn Erro
     Ok(match ensemble.into_single() {
         Ok(network) => Box::new(network),
         Err(ensemble) => {
-            println!("Using an ensemble of {} models\n", ensemble.len());
+            eprintln!("Using an ensemble of {} models\n", ensemble.len());
             Box::new(ensemble)
         }
     })
