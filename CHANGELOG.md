@@ -10,6 +10,8 @@ All notable changes to this project are documented here. The format follows
 - **JPEG support:** a from-scratch JPEG decoder for baseline and progressive files, with any
   chroma subsampling, restart markers, greyscale and CMYK. Photos are turned upright using their
   EXIF orientation.
+- `predict --top N` lists the N most likely classes, and `predict --json` prints the results as
+  JSON.
 - **Batch normalisation:** a `BatchNorm` layer (`train --batch-norm`). Its statistics cover the
   whole mini-batch even though the batch is split across threads: the threads add up their
   partial sums at a barrier, in a fixed order, so training stays reproducible.

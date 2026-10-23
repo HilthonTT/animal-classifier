@@ -17,6 +17,7 @@ impl Options {
         "batch-norm",
         "residual",
         "global-pool",
+        "json",
         "help",
     ];
 

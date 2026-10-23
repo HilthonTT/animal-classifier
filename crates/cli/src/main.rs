@@ -68,6 +68,8 @@ EVALUATE / PREDICT OPTIONS:
     --explain <OUT>         predict only: save a heat map (.ppm) of the pixels that drove
                             the top class. OUT is a file for one image, or a folder that
                             receives <image>-heatmap.ppm files for several
+    --top <N>               predict only: how many classes to list  [default: 10]
+    --json                  predict only: print the results as JSON
 
 EXPAND OPTIONS:
     --out <DIR>             [default: data/cifar-10-expanded or data/cifar-100-expanded]

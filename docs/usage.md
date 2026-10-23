@@ -27,9 +27,27 @@ dog.png (128x128)
 | `--fit crop\|pad\|stretch` | how a non-square photo is made square before shrinking it to 32×32 |
 | `--auto-contrast` | stretch the colour range of dull photos |
 | `--explain OUT` | save a heat map of the pixels behind the answer (see below) |
+| `--top N` | list only the N most likely classes (default 10) |
+| `--json` | print the results as JSON instead (see below) |
 
 Models with more than ten classes, such as a CIFAR-100 model, list their ten most likely
-classes.
+classes unless you pass `--top`.
+
+### JSON output
+
+`--json` prints a JSON array with one object per image, each on its own line, for scripts:
+
+```bash
+cargo run --release -- predict photos/*.jpg --top 3 --json
+```
+
+```json
+[
+  {"image": "photos/dog.jpg", "width": 640, "height": 480, "prediction": "dog", "confidence": 0.671, "top": [{"label": "dog", "probability": 0.671}, {"label": "cat", "probability": 0.224}, {"label": "bird", "probability": 0.037}], "heat_map": null}
+]
+```
+
+`heat_map` holds the path written by `--explain`, or `null`.
 
 ### See what the model looks at
 
