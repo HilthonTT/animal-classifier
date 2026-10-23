@@ -4,10 +4,10 @@ use crate::init::Init;
 use crate::math::{axpy, gemm, gemm_nt, transpose, with_scratch};
 use crate::rng::Rng;
 
-/// 2-D convolution with a square kernel, stride 1 and zero padding.
+/// 2-D convolution with a square kernel, a stride and zero padding.
 ///
 /// Input shape `[in_channels][height][width]`, output shape
-/// `[out_channels][height + 2·pad − k + 1][width + 2·pad − k + 1]`.
+/// `[out_channels][(height + 2·pad − k) / stride + 1][(width + 2·pad − k) / stride + 1]`.
 #[derive(Clone, Debug)]
 pub struct Conv2d {
     in_channels: usize,
@@ -16,6 +16,7 @@ pub struct Conv2d {
     out_channels: usize,
     kernel: usize,
     pad: usize,
+    stride: usize,
     out_h: usize,
     out_w: usize,
     /// Weights `[out_channels][in_channels][kernel][kernel]` followed by `out_channels` biases.
@@ -57,7 +58,7 @@ impl Conv2d {
         init: Init,
         rng: &mut Rng,
     ) -> Self {
-        let mut layer = Self::with_shape(in_channels, in_h, in_w, out_channels, kernel, pad)
+        let mut layer = Self::with_shape(in_channels, in_h, in_w, out_channels, kernel, pad, 1)
             .unwrap_or_else(|e| panic!("{e}"));
         let n_weights = layer.weight_count();
         let area = kernel * kernel;
@@ -70,9 +71,33 @@ impl Conv2d {
         layer
     }
 
+    pub fn with_stride(self, stride: usize) -> Self {
+        let mut layer = Self::with_shape(
+            self.in_channels,
+            self.in_h,
+            self.in_w,
+            self.out_channels,
+            self.kernel,
+            self.pad,
+            stride,
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
+        layer.params = self.params;
+        layer
+    }
+
+    pub fn stride(&self) -> usize {
+        self.stride
+    }
+
     pub(crate) fn from_config(config: &[u32]) -> Result<Self> {
-        let [in_channels, in_h, in_w, out_channels, kernel, pad] = parse_config(config, "Conv2d")?;
-        Self::with_shape(in_channels, in_h, in_w, out_channels, kernel, pad)
+        let [in_channels, in_h, in_w, out_channels, kernel, pad, stride] = if config.len() == 6 {
+            let [a, b, c, d, e, f] = parse_config(config, "Conv2d")?;
+            [a, b, c, d, e, f, 1]
+        } else {
+            parse_config(config, "Conv2d")?
+        };
+        Self::with_shape(in_channels, in_h, in_w, out_channels, kernel, pad, stride)
     }
 
     fn with_shape(
@@ -82,8 +107,15 @@ impl Conv2d {
         out_channels: usize,
         kernel: usize,
         pad: usize,
+        stride: usize,
     ) -> Result<Self> {
-        if in_channels == 0 || in_h == 0 || in_w == 0 || out_channels == 0 || kernel == 0 {
+        if in_channels == 0
+            || in_h == 0
+            || in_w == 0
+            || out_channels == 0
+            || kernel == 0
+            || stride == 0
+        {
             return Err(Error::format("Conv2d dimensions must be non-zero"));
         }
         if in_h + 2 * pad < kernel || in_w + 2 * pad < kernel {
@@ -91,7 +123,10 @@ impl Conv2d {
                 "Conv2d kernel is larger than the padded input",
             ));
         }
-        let (out_h, out_w) = (in_h + 2 * pad - kernel + 1, in_w + 2 * pad - kernel + 1);
+        let (out_h, out_w) = (
+            (in_h + 2 * pad - kernel) / stride + 1,
+            (in_w + 2 * pad - kernel) / stride + 1,
+        );
         let fits = checked_len(&[in_channels, in_h, in_w]).is_some()
             && checked_len(&[out_channels, out_h, out_w]).is_some()
             && checked_param_len(&[out_channels, in_channels, kernel, kernel], out_channels)
@@ -106,6 +141,7 @@ impl Conv2d {
             out_channels,
             kernel,
             pad,
+            stride,
             out_h,
             out_w,
             params: Vec::new(),
@@ -118,10 +154,13 @@ impl Conv2d {
         self.out_channels * self.in_channels * self.kernel * self.kernel
     }
 
-    /// Output positions `o` for which the input position `o + k − pad` lies in `[0, in_len)`.
-    fn valid_range(k: usize, pad: usize, in_len: usize, out_len: usize) -> (usize, usize) {
-        let start = pad.saturating_sub(k);
-        let end = (in_len + pad).saturating_sub(k).min(out_len);
+    /// Output positions `o` for which the input position `o·stride + k − pad` lies in `[0, in_len)`.
+    fn valid_range(&self, k: usize, in_len: usize, out_len: usize) -> (usize, usize) {
+        let start = self.pad.saturating_sub(k).div_ceil(self.stride);
+        let end = (in_len + self.pad)
+            .saturating_sub(k)
+            .div_ceil(self.stride)
+            .min(out_len);
         (start, end.max(start))
     }
 
@@ -144,17 +183,25 @@ impl Conv2d {
         let (in_plane, out_plane) = (self.in_h * self.in_w, self.out_h * self.out_w);
         cols.fill(0.0);
         self.for_each_row(|row, ic, ky, kx| {
-            let (y0, y1) = Self::valid_range(ky, self.pad, self.in_h, self.out_h);
-            let (x0, x1) = Self::valid_range(kx, self.pad, self.in_w, self.out_w);
+            let (y0, y1) = self.valid_range(ky, self.in_h, self.out_h);
+            let (x0, x1) = self.valid_range(kx, self.in_w, self.out_w);
             if y0 >= y1 || x0 >= x1 {
                 return;
             }
             let src_plane = &input[ic * in_plane..(ic + 1) * in_plane];
             let dst_plane = &mut cols[row * out_plane..(row + 1) * out_plane];
+            let s = self.stride;
             for oy in y0..y1 {
-                let src = (oy + ky - self.pad) * self.in_w + (x0 + kx - self.pad);
+                let src = (oy * s + ky - self.pad) * self.in_w + (x0 * s + kx - self.pad);
                 let dst = oy * self.out_w + x0;
-                dst_plane[dst..dst + x1 - x0].copy_from_slice(&src_plane[src..src + x1 - x0]);
+                let dst_row = &mut dst_plane[dst..dst + x1 - x0];
+                if s == 1 {
+                    dst_row.copy_from_slice(&src_plane[src..src + x1 - x0]);
+                } else {
+                    for (d, v) in dst_row.iter_mut().zip(src_plane[src..].iter().step_by(s)) {
+                        *d = *v;
+                    }
+                }
             }
         });
     }
@@ -163,21 +210,24 @@ impl Conv2d {
         let (in_plane, out_plane) = (self.in_h * self.in_w, self.out_h * self.out_w);
         grad_input.fill(0.0);
         self.for_each_row(|row, ic, ky, kx| {
-            let (y0, y1) = Self::valid_range(ky, self.pad, self.in_h, self.out_h);
-            let (x0, x1) = Self::valid_range(kx, self.pad, self.in_w, self.out_w);
+            let (y0, y1) = self.valid_range(ky, self.in_h, self.out_h);
+            let (x0, x1) = self.valid_range(kx, self.in_w, self.out_w);
             if y0 >= y1 || x0 >= x1 {
                 return;
             }
             let src_plane = &cols[row * out_plane..(row + 1) * out_plane];
             let dst_plane = &mut grad_input[ic * in_plane..(ic + 1) * in_plane];
+            let s = self.stride;
             for oy in y0..y1 {
-                let dst = (oy + ky - self.pad) * self.in_w + (x0 + kx - self.pad);
-                let src = oy * self.out_w + x0;
-                axpy(
-                    1.0,
-                    &src_plane[src..src + x1 - x0],
-                    &mut dst_plane[dst..dst + x1 - x0],
-                );
+                let dst = (oy * s + ky - self.pad) * self.in_w + (x0 * s + kx - self.pad);
+                let src = &src_plane[oy * self.out_w + x0..oy * self.out_w + x1];
+                if s == 1 {
+                    axpy(1.0, src, &mut dst_plane[dst..dst + x1 - x0]);
+                } else {
+                    for (d, v) in dst_plane[dst..].iter_mut().step_by(s).zip(src) {
+                        *d += *v;
+                    }
+                }
             }
         });
     }
@@ -261,7 +311,7 @@ impl Layer for Conv2d {
     }
 
     fn config(&self) -> Vec<u32> {
-        [
+        let mut config: Vec<u32> = [
             self.in_channels,
             self.in_h,
             self.in_w,
@@ -271,12 +321,21 @@ impl Layer for Conv2d {
         ]
         .iter()
         .map(|&v| v as u32)
-        .collect()
+        .collect();
+        if self.stride != 1 {
+            config.push(self.stride as u32);
+        }
+        config
     }
 
     fn describe(&self) -> String {
+        let stride = if self.stride == 1 {
+            String::new()
+        } else {
+            format!(", stride {}", self.stride)
+        };
         format!(
-            "Conv2d {}x{}x{} -> {}x{}x{} ({k}x{k}, pad {})",
+            "Conv2d {}x{}x{} -> {}x{}x{} ({k}x{k}, pad {}{stride})",
             self.in_channels,
             self.in_h,
             self.in_w,
@@ -372,6 +431,34 @@ mod tests {
         let mut output = vec![0.0; 4];
         conv.forward(&input, &mut output);
         assert_eq!(output, vec![12.5, 16.5, 24.5, 28.5]);
+    }
+
+    #[test]
+    fn strided_convolution_skips_positions() {
+        let mut conv = Conv2d::from_config(&[1, 5, 5, 1, 3, 1, 2]).unwrap();
+        assert_eq!(conv.output_len(), 9);
+        conv.params_mut()[4] = 1.0;
+        let input: Vec<f32> = (0..25).map(|v| v as f32).collect();
+        let mut output = vec![0.0; 9];
+        conv.forward(&input, &mut output);
+        assert_eq!(
+            output,
+            vec![0.0, 2.0, 4.0, 10.0, 12.0, 14.0, 20.0, 22.0, 24.0]
+        );
+
+        let even = Conv2d::from_config(&[1, 32, 32, 1, 3, 1, 2]).unwrap();
+        assert_eq!(even.output_len(), 16 * 16);
+    }
+
+    #[test]
+    fn stride_is_stored_only_when_it_is_not_one() {
+        let plain = Conv2d::from_config(&[2, 8, 8, 4, 3, 1]).unwrap();
+        assert_eq!(plain.config(), vec![2, 8, 8, 4, 3, 1]);
+        let strided = plain.with_stride(2);
+        assert_eq!(strided.config(), vec![2, 8, 8, 4, 3, 1, 2]);
+        assert_eq!(strided.output_len(), 4 * 4 * 4);
+        assert!(strided.describe().ends_with("stride 2)"));
+        assert!(Conv2d::from_config(&[2, 8, 8, 4, 3, 1, 0]).is_err());
     }
 
     #[test]

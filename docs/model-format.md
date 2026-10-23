@@ -30,7 +30,7 @@ Each layer:
 | Kind | Layer | Config | Parameters |
 |-----:|-------|--------|------------|
 | 1 | Dense | `inputs, outputs` | `outputs×inputs` weights (row-major), `outputs` biases |
-| 2 | Conv2d | `in_channels, height, width, out_channels, kernel, padding` | `out×in×k×k` weights, `out` biases |
+| 2 | Conv2d | `in_channels, height, width, out_channels, kernel, padding[, stride]`; the stride is written only when it is not 1 | `out×in×k×k` weights, `out` biases |
 | 3 | MaxPool2d | `channels, height, width, size` | none |
 | 4 | Activation | `length, function` (version 1: just `length`, meaning ReLU) | none |
 | 5 | Dropout | `length, rate` (rate stored as `f32` bits) | none |

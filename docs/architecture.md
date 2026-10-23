@@ -83,7 +83,8 @@ The activation, initialisation, dropout rate and width are all configurable (see
 ```
 
 `--batch-norm` adds the BatchNorm layers, `--residual` the shortcut blocks, `--pool avg` swaps
-max pooling for average pooling, and `--global-pool` replaces the 128-unit hidden layer with
+max pooling for average pooling, `--pool stride` replaces it with a 3×3 convolution of stride 2
+that learns how to downsample, and `--global-pool` replaces the 128-unit hidden layer with
 global average pooling. A shortcut is a `Residual` layer: it adds the input of the layer
 `span` places earlier to its own input, and back-propagation sends the gradient down both
 paths.

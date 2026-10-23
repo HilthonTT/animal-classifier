@@ -64,6 +64,27 @@ fn gradients_are_correct_for_mean_squared_error() {
 }
 
 #[test]
+fn gradients_are_correct_for_strided_convolutions() {
+    let mut rng = Rng::new(11);
+    for (stride, kernel, pad) in [(2, 3, 1), (3, 2, 0)] {
+        let mut net = Network::new((0..4).map(|i| i.to_string()).collect());
+        net.push(Conv2d::with_init(2, 7, 7, 3, 3, 1, Init::Xavier, &mut rng));
+        net.push(Activation::new(ActivationFn::Tanh, net.output_len()));
+        net.push(
+            Conv2d::with_init(3, 7, 7, 4, kernel, pad, Init::Xavier, &mut rng).with_stride(stride),
+        );
+        net.push(Activation::new(ActivationFn::Tanh, net.output_len()));
+        net.push(Dense::with_init(
+            net.output_len(),
+            4,
+            Init::Xavier,
+            &mut rng,
+        ));
+        check(net, Loss::CrossEntropy, &mut rng);
+    }
+}
+
+#[test]
 fn layers_report_parameter_counts() {
     let net = build(ActivationFn::Relu, &mut Rng::new(1));
     let counts: Vec<usize> = net.layers().iter().map(|l| l.params().len()).collect();

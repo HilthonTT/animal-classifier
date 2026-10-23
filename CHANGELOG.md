@@ -10,6 +10,9 @@ All notable changes to this project are documented here. The format follows
 - **JPEG support:** a from-scratch JPEG decoder for baseline and progressive files, with any
   chroma subsampling, restart markers, greyscale and CMYK. Photos are turned upright using their
   EXIF orientation.
+- **Strided convolutions:** `Conv2d::with_stride`, and `train --pool stride` downsamples with a
+  learned 3×3 convolution of stride 2 instead of pooling. The stride is stored only when it is
+  not 1, so stride-1 models are written exactly as before.
 - `predict --top N` lists the N most likely classes, and `predict --json` prints the results as
   JSON.
 - **Batch normalisation:** a `BatchNorm` layer (`train --batch-norm`). Its statistics cover the

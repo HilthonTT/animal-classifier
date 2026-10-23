@@ -37,7 +37,7 @@ corrupt model behind.
 | `--width N` | filters in the first convolution; later blocks use 2× and 4× | 16 |
 | `--batch-norm` | batch normalisation after every convolution and the hidden layer | off |
 | `--residual` | add a residual block (two convolutions and a shortcut) to each stage | off |
-| `--pool NAME` | `max` or `avg` pooling between stages | `max` |
+| `--pool NAME` | `max` or `avg` pooling between stages, or `stride` for a learned stride-2 convolution | `max` |
 | `--global-pool` | global average pooling instead of the 128-unit hidden layer | off |
 | `--jitter S` | random brightness, contrast and saturation, each scaled by a factor in `[1 − S, 1 + S]` | 0 |
 | `--cutout N` | blank a random N×N square of every training image | 0 |

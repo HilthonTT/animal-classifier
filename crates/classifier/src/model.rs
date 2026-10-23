@@ -12,6 +12,7 @@ pub enum Pool {
     #[default]
     Max,
     Avg,
+    Stride,
 }
 
 impl fmt::Display for Pool {
@@ -19,6 +20,7 @@ impl fmt::Display for Pool {
         f.write_str(match self {
             Pool::Max => "max",
             Pool::Avg => "avg",
+            Pool::Stride => "stride",
         })
     }
 }
@@ -30,7 +32,10 @@ impl FromStr for Pool {
         match s.to_ascii_lowercase().as_str() {
             "max" => Ok(Pool::Max),
             "avg" | "average" => Ok(Pool::Avg),
-            _ => Err(format!("unknown pooling `{s}` (expected max or avg)")),
+            "stride" | "strided" => Ok(Pool::Stride),
+            _ => Err(format!(
+                "unknown pooling `{s}` (expected max, avg or stride)"
+            )),
         }
     }
 }
@@ -106,6 +111,16 @@ pub fn pawnet_cnn(labels: &[String], options: &ModelOptions, rng: &mut Rng) -> N
         match pool {
             Pool::Max => net.push(MaxPool2d::new(out_channels, size, size, 2)),
             Pool::Avg => net.push(AvgPool2d::new(out_channels, size, size, 2)),
+            Pool::Stride => {
+                net.push(
+                    Conv2d::with_init(out_channels, size, size, out_channels, 3, 1, init, rng)
+                        .with_stride(2),
+                );
+                if batch_norm {
+                    net.push(BatchNorm::new(out_channels, (size / 2) * (size / 2)));
+                }
+                net.push(Activation::new(activation, net.output_len()))
+            }
         };
         channels = out_channels;
         size /= 2;
@@ -181,8 +196,27 @@ mod tests {
     }
 
     #[test]
+    fn downsamples_with_strided_convolutions() {
+        let options = ModelOptions {
+            pool: Pool::Stride,
+            batch_norm: true,
+            ..ModelOptions::default()
+        };
+        let net = pawnet_cnn(&labels(), &options, &mut Rng::new(1));
+        let count = |kind| net.layers().iter().filter(|l| l.kind() == kind).count();
+        assert_eq!(count(LayerKind::Conv2d), 6);
+        assert_eq!(count(LayerKind::MaxPool2d), 0);
+        assert_eq!(count(LayerKind::BatchNorm), 7);
+        assert_eq!(net.output_len(), 3);
+        let restored = Network::from_bytes(&net.to_bytes()).unwrap();
+        let input = vec![0.25; net.input_len()];
+        assert_eq!(restored.predict(&input), net.predict(&input));
+    }
+
+    #[test]
     fn parses_pooling() {
         assert_eq!("avg".parse::<Pool>(), Ok(Pool::Avg));
+        assert_eq!("stride".parse::<Pool>(), Ok(Pool::Stride));
         assert_eq!(Pool::Max.to_string(), "max");
         assert!("min".parse::<Pool>().is_err());
     }

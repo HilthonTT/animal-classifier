@@ -47,7 +47,7 @@ TRAIN OPTIONS:
     --width <N>             Filters in the first conv layer     [default: 16]
     --batch-norm            Batch normalisation after every conv and hidden layer
     --residual              Add a residual block (two convs + shortcut) to each stage
-    --pool <NAME>           max | avg                           [default: max]
+    --pool <NAME>           max | avg | stride                  [default: max]
     --global-pool           Global average pooling instead of the 128-unit hidden layer
     --seed <N>              Random seed for reproducible runs
     --limit <N>             Only use the first N training images (quick experiments)

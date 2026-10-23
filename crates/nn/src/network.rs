@@ -297,21 +297,28 @@ impl Network {
 
     /// A table describing every layer.
     pub fn summary(&self) -> String {
-        let mut out = format!("{:<44}{:>10}{:>12}\n", "Layer", "Outputs", "Params");
-        out += &format!("{}\n", "-".repeat(66));
-        for layer in &self.layers {
+        let names: Vec<String> = self.layers.iter().map(|l| l.describe()).collect();
+        let width = names
+            .iter()
+            .map(|n| n.chars().count() + 2)
+            .max()
+            .unwrap_or(0)
+            .max(44);
+        let mut out = format!("{:<width$}{:>10}{:>12}\n", "Layer", "Outputs", "Params");
+        out += &format!("{}\n", "-".repeat(width + 22));
+        for (layer, name) in self.layers.iter().zip(&names) {
             out += &format!(
-                "{:<44}{:>10}{:>12}\n",
-                layer.describe(),
+                "{name:<width$}{:>10}{:>12}\n",
                 layer.output_len(),
                 layer.params().len()
             );
         }
-        out += &format!("{}\n", "-".repeat(66));
+        out += &format!("{}\n", "-".repeat(width + 22));
         out += &format!(
-            "{:<54}{:>12}\n",
+            "{:<total$}{:>12}\n",
             format!("Total ({} classes)", self.labels.len()),
-            self.param_count()
+            self.param_count(),
+            total = width + 10
         );
         out
     }
