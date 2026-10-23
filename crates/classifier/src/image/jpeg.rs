@@ -182,6 +182,7 @@ struct Component {
     h: usize,
     v: usize,
     quant: usize,
+    quant_table: Option<[u16; 64]>,
     blocks_w: usize,
     blocks_h: usize,
     width: usize,
@@ -331,6 +332,7 @@ impl Decoder {
                 h,
                 v,
                 quant,
+                quant_table: None,
                 blocks_w: 0,
                 blocks_h: 0,
                 width: 0,
@@ -469,7 +471,14 @@ impl Decoder {
             tables.push((dc, ac));
         }
         for &(i, _, _) in &scan.components {
-            frame.components[i].dc_pred = 0;
+            let comp = &mut frame.components[i];
+            if comp.quant_table.is_none() {
+                comp.quant_table = Some(
+                    self.quant[comp.quant]
+                        .ok_or_else(|| corrupt("undefined quantisation table"))?,
+                );
+            }
+            comp.dc_pred = 0;
         }
         let mut reader = BitReader::new(bytes, pos);
         let mut eob_run = 0u32;
@@ -579,8 +588,10 @@ impl Decoder {
         let idct = IdctTable::new();
         let mut planes = Vec::with_capacity(frame.components.len());
         for comp in &frame.components {
-            let quant = self.quant[comp.quant]
+            let quant = comp
+                .quant_table
                 .as_ref()
+                .or(self.quant[comp.quant].as_ref())
                 .ok_or_else(|| corrupt("undefined quantisation table"))?;
             let plane = idct.plane(comp, quant);
             planes.push(upsample(

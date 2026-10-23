@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use pawnet::image::RgbImage;
 
-const FIXTURES: [&str; 9] = [
+const FIXTURES: [&str; 10] = [
     "jpeg-444",
     "jpeg-420",
     "jpeg-422",
@@ -12,6 +12,7 @@ const FIXTURES: [&str; 9] = [
     "jpeg-grey",
     "jpeg-grey-progressive",
     "jpeg-cmyk",
+    "jpeg-requant",
 ];
 
 fn fixture(name: &str) -> PathBuf {
