@@ -5,6 +5,7 @@ use crate::error::{Error, Result};
 
 pub mod bmp;
 mod inflate;
+pub mod jpeg;
 pub mod png;
 pub mod ppm;
 pub mod preprocess;
@@ -43,12 +44,15 @@ impl RgbImage {
         if bytes.starts_with(&png::SIGNATURE[..4]) {
             return Self::decode_png(bytes);
         }
+        if bytes.starts_with(&jpeg::SIGNATURE) {
+            return Self::decode_jpeg(bytes);
+        }
         match bytes.get(..2) {
             Some(b"P6") | Some(b"P3") => Self::decode_ppm(bytes),
             Some(b"BM") => Self::decode_bmp(bytes),
             _ => Err(Error::format(
-                "unsupported image format: only PNG, PPM and BMP can be read without external libraries. \
-                 Convert with e.g. `magick photo.jpg photo.png`",
+                "unsupported image format: only JPEG, PNG, PPM and BMP can be read without external libraries. \
+                 Convert with e.g. `magick photo.webp photo.png`",
             )),
         }
     }

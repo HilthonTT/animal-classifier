@@ -12,7 +12,7 @@ const HEAT_MAP_SCALE: usize = 8;
 pub fn run(opts: &Options) -> AppResult {
     opts.allow(&["model", "fit", "auto-contrast", "tta", "explain"])?;
     if opts.positional.is_empty() {
-        return Err("usage: pawnet predict <image.png|image.ppm|image.bmp>…".into());
+        return Err("usage: pawnet predict <image.jpg|image.png|image.ppm|image.bmp>…".into());
     }
     let explain = opts.get_opt::<PathBuf>("explain")?;
     let several = opts.positional.len() > 1;

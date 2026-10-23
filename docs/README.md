@@ -28,7 +28,7 @@ and [CONTRIBUTING.md](../CONTRIBUTING.md).
 - Ensembles and test-time augmentation
 - Heat maps of the pixels behind each prediction
 - Best-epoch selection on a validation split, early stopping, learning-rate warm-up, and CSV training logs
-- PNG (with its own DEFLATE decompressor), PPM and BMP decoders with crop/pad/stretch fitting and auto-contrast
+- JPEG (baseline and progressive), PNG (with its own DEFLATE decompressor), PPM and BMP decoders with crop/pad/stretch fitting and auto-contrast
 - A builder API: `TrainConfig::new().epochs(30).l2(1e-4).gradient_clipping(5.0)`
 
 **The CLI** ([`crates/cli`](../crates/cli), binary `pawnet`): `train`, `evaluate`,

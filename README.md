@@ -23,10 +23,10 @@
 ```bash
 git clone https://github.com/HilthonTT/pawnet.git
 cd pawnet
-cargo run --release -- predict my-photo.png --tta    # pre-trained model included
+cargo run --release -- predict my-photo.jpg --tta    # pre-trained model included
 ```
 
-Photos must be PNG, PPM or BMP (`magick photo.jpg photo.png`); see [usage](docs/usage.md#using-your-own-photos).
+Photos can be JPEG, PNG, PPM or BMP; see [usage](docs/usage.md#using-your-own-photos).
 
 To train your own model:
 

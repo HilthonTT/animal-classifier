@@ -14,7 +14,7 @@ USAGE:
 COMMANDS:
     train             Train a new model on the CIFAR-10 animal images
     evaluate          Measure accuracy on the test set and print a confusion matrix
-    predict <IMAGE>…  Classify your own .png, .ppm or .bmp images
+    predict <IMAGE>…  Classify your own .jpg, .png, .ppm or .bmp images
     expand            Write a bigger training set of flipped, shifted and rotated copies
     export-samples    Save some test images as .ppm files to try `predict` on
     info              Show the network architecture

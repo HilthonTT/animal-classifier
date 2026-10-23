@@ -51,15 +51,20 @@ the maps measure change relative to the dataset's average colour.
 
 ### Using your own photos
 
-The classifier reads **PNG**, **PPM** and **24/32-bit BMP** files. The PNG decoder, including
-its DEFLATE decompressor, is written from scratch like the rest of the project. It supports
-every colour type and bit depth and interlaced images; transparent areas become white.
+The classifier reads **JPEG**, **PNG**, **PPM** and **24/32-bit BMP** files. The decoders are
+written from scratch like the rest of the project:
 
-JPEG would need a far larger decoder, so convert JPEG photos first:
+- **JPEG:** baseline and progressive, any chroma subsampling, restart markers, greyscale and
+  CMYK. Phone photos are turned upright using their EXIF orientation. Arithmetic-coded,
+  lossless and 12-bit JPEGs are not supported.
+- **PNG:** every colour type and bit depth, and interlaced images, with its own DEFLATE
+  decompressor. Transparent areas become white.
+
+Convert other formats such as WebP or HEIC first:
 
 ```bash
-magick my-dog.jpg my-dog.png        # ImageMagick
-ffmpeg -i my-dog.jpg my-dog.png     # FFmpeg
+magick my-dog.webp my-dog.png       # ImageMagick
+ffmpeg -i my-dog.webp my-dog.png    # FFmpeg
 ```
 
 The network sees photos at only 32×32 pixels. You get the best results when the animal
@@ -95,7 +100,7 @@ Every training option, recipes and reference results are in the [training guide]
 |---------|-------------|
 | `train` | Train a model; the best epoch (by validation accuracy) is saved |
 | `evaluate` | Accuracy, per-class precision and recall, and a confusion matrix |
-| `predict <IMAGE>…` | Classify `.png`, `.ppm` or `.bmp` files |
+| `predict <IMAGE>…` | Classify `.jpg`, `.png`, `.ppm` or `.bmp` files |
 | `expand` | Write a 4× larger training set (flipped, shifted and rotated copies) |
 | `export-samples` | Write test-set images as `.ppm` files |
 | `info` | Print the network architecture |
